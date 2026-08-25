@@ -1,0 +1,6 @@
+streamlit==1.39.0
+ultralytics==8.3.0
+pillow==10.4.0
+numpy==1.26.4
+pandas
+face_recognition
