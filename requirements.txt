@@ -3,6 +3,5 @@ ultralytics
 pillow
 numpy
 pandas
-
 opencv-contrib-python-headless
-face_recognition
+
