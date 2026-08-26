@@ -2,1412 +2,241 @@ import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import numpy as np
-import pandas as pd
-from datetime import datetime
 from collections import Counter
 
-
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-
 st.set_page_config(
-    page_title="AI Detective",
+    page_title="YOLO Vision Agent",
     page_icon="◈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-
-# =========================================================
-# SESSION STATE
-# =========================================================
-
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-if "investigation_count" not in st.session_state:
-    st.session_state.investigation_count = 0
-
-
-# =========================================================
-# CUSTOM CSS
-# =========================================================
-
+# -----------------------------
+# Tech-style UI
+# -----------------------------
 st.markdown(
     """
     <style>
-
-    @import url(
-        'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap'
-    );
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
 
     .stApp {
         background:
-            radial-gradient(
-                circle at 10% 10%,
-                rgba(0, 220, 255, 0.10),
-                transparent 30%
-            ),
-            radial-gradient(
-                circle at 90% 15%,
-                rgba(120, 70, 255, 0.10),
-                transparent 30%
-            ),
-            linear-gradient(
-                135deg,
-                #040711 0%,
-                #07101d 50%,
-                #03060c 100%
-            );
-
-        color: #eaf6ff;
-        font-family: 'Inter', sans-serif;
+            radial-gradient(circle at 15% 15%, rgba(0, 229, 255, .09), transparent 25%),
+            radial-gradient(circle at 85% 20%, rgba(124, 58, 237, .10), transparent 25%),
+            linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px),
+            #070b12;
+        background-size: auto, auto, 36px 36px, 36px 36px;
+        color: #e8eef7;
     }
 
-    .stApp::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        opacity: 0.13;
-
-        background-image:
-            linear-gradient(
-                rgba(255,255,255,0.025) 1px,
-                transparent 1px
-            ),
-            linear-gradient(
-                90deg,
-                rgba(255,255,255,0.025) 1px,
-                transparent 1px
-            );
-
-        background-size: 40px 40px;
-    }
-
-    .block-container {
-        max-width: 1450px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-
-    [data-testid="stSidebar"] {
-        background:
-            linear-gradient(
-                180deg,
-                #060b15 0%,
-                #030711 100%
-            );
-
-        border-right:
-            1px solid
-            rgba(75, 210, 255, 0.14);
-    }
-
-    .brand {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 25px;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-    }
-
-    .brand-symbol {
-        color: #4ddcff;
-    }
-
-    .sidebar-subtitle {
-        color: #688198;
-        font-size: 11px;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        margin-top: -4px;
-    }
+    .block-container { max-width: 1450px; padding-top: 2rem; }
+    h1, h2, h3, p, label, div { font-family: Inter, sans-serif; }
 
     .hero {
-        padding: 30px;
-        border-radius: 24px;
-
-        background:
-            linear-gradient(
-                135deg,
-                rgba(8, 23, 40, 0.95),
-                rgba(8, 12, 27, 0.92)
-            );
-
-        border:
-            1px solid
-            rgba(71, 213, 255, 0.20);
-
-        box-shadow:
-            0 0 50px
-            rgba(0, 210, 255, 0.06);
-
-        margin-bottom: 25px;
+        border: 1px solid rgba(0,229,255,.18);
+        background: linear-gradient(135deg, rgba(10,18,31,.92), rgba(10,14,25,.72));
+        border-radius: 22px;
+        padding: 28px 32px;
+        margin-bottom: 22px;
+        box-shadow: 0 0 45px rgba(0,229,255,.06), inset 0 1px rgba(255,255,255,.04);
+        position: relative;
+        overflow: hidden;
     }
-
-    .eyebrow {
-        color: #52dcff;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 2.5px;
-        text-transform: uppercase;
+    .hero:after {
+        content: '';
+        position: absolute; right: -90px; top: -100px;
+        width: 280px; height: 280px;
+        border: 1px solid rgba(0,229,255,.15);
+        border-radius: 50%;
+        box-shadow: 0 0 0 30px rgba(0,229,255,.025), 0 0 0 60px rgba(0,229,255,.018);
     }
-
-    .hero-title {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: clamp(34px, 5vw, 58px);
-        font-weight: 700;
-        line-height: 1.02;
-        margin: 8px 0 12px 0;
-        color: #f1f8ff;
-    }
-
-    .hero-description {
-        max-width: 850px;
-        color: #8ca4b9;
-        font-size: 15px;
-        line-height: 1.65;
-    }
-
-    .section-title {
-        font-family: 'Space Grotesk', sans-serif;
-        color: #f0f7ff;
-        font-size: 21px;
-        font-weight: 700;
-        margin-top: 28px;
-        margin-bottom: 14px;
-    }
-
-    .metric {
-        min-height: 110px;
-        padding: 20px;
-        border-radius: 18px;
-
-        background:
-            rgba(8, 17, 31, 0.78);
-
-        border:
-            1px solid
-            rgba(115, 160, 195, 0.15);
-    }
-
-    .metric-label {
-        color: #6e879d;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1.4px;
-    }
-
-    .metric-value {
-        color: #f4faff;
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 30px;
-        font-weight: 700;
-        margin-top: 9px;
-    }
-
-    .module-card {
-        min-height: 165px;
-        padding: 22px;
-        border-radius: 20px;
-
-        background:
-            rgba(7, 16, 29, 0.78);
-
-        border:
-            1px solid
-            rgba(115, 160, 195, 0.14);
-    }
-
-    .module-icon {
-        font-size: 30px;
-    }
-
-    .module-title {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 19px;
-        font-weight: 700;
-        margin-top: 10px;
-    }
-
-    .module-text {
-        color: #71899f;
-        font-size: 13px;
-        line-height: 1.6;
-        margin-top: 6px;
-    }
+    .eyebrow { color: #00e5ff; font: 700 12px 'Space Mono', monospace; letter-spacing: 2px; }
+    .hero h1 { font-size: 42px; margin: 8px 0 8px; letter-spacing: -1.5px; }
+    .hero p { color: #93a4ba; margin: 0; max-width: 760px; font-size: 15px; }
 
     .panel {
-        padding: 18px;
-        border-radius: 20px;
-
-        background:
-            rgba(7, 14, 26, 0.78);
-
-        border:
-            1px solid
-            rgba(115, 160, 195, 0.14);
-    }
-
-    .panel-title {
-        color: #9ab1c4;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1.7px;
-        margin-bottom: 12px;
-    }
-
-    .evidence-card {
-        padding: 18px;
-        margin-bottom: 12px;
-        border-radius: 16px;
-
-        background:
-            linear-gradient(
-                135deg,
-                rgba(8, 27, 41, 0.92),
-                rgba(7, 15, 27, 0.82)
-            );
-
-        border:
-            1px solid
-            rgba(63, 215, 255, 0.18);
-    }
-
-    .evidence-label {
-        color: #52dcff;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1.4px;
-    }
-
-    .evidence-name {
-        color: #f0f8ff;
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 22px;
-        font-weight: 700;
-        margin-top: 5px;
-    }
-
-    .evidence-confidence {
-        color: #72e7a7;
-        font-size: 13px;
-        margin-top: 5px;
-    }
-
-    .analysis-card {
-        padding: 24px;
-        border-radius: 20px;
-
-        background:
-            linear-gradient(
-                135deg,
-                rgba(13, 39, 48, 0.70),
-                rgba(8, 17, 29, 0.88)
-            );
-
-        border:
-            1px solid
-            rgba(67, 229, 182, 0.20);
-
-        box-shadow:
-            0 0 35px
-            rgba(67, 229, 182, 0.04);
-    }
-
-    .analysis-title {
-        color: #67efbb;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1.8px;
-    }
-
-    .analysis-text {
-        color: #d9e8f3;
-        font-size: 15px;
-        line-height: 1.75;
-        margin-top: 10px;
-    }
-
-    .status-online {
-        display: inline-block;
-        color: #67efbb;
-        background: rgba(67, 239, 187, 0.08);
-        border: 1px solid rgba(67, 239, 187, 0.18);
-        border-radius: 30px;
-        padding: 5px 10px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1px;
-    }
-
-    .empty-state {
-        padding: 45px;
-        text-align: center;
-        border-radius: 20px;
-
-        background:
-            rgba(7, 15, 27, 0.65);
-
-        border:
-            1px dashed
-            rgba(110, 160, 190, 0.18);
-    }
-
-    .empty-icon {
-        font-size: 40px;
-        margin-bottom: 10px;
-    }
-
-    .empty-title {
-        font-family: 'Space Grotesk', sans-serif;
-        color: #dceaf5;
-        font-size: 19px;
-        font-weight: 700;
-    }
-
-    .empty-text {
-        color: #687f94;
-        font-size: 13px;
-        margin-top: 7px;
-    }
-
-    .stButton > button {
-        min-height: 44px;
-        border-radius: 12px;
-
-        background:
-            rgba(14, 34, 52, 0.90);
-
-        border:
-            1px solid
-            rgba(70, 213, 255, 0.22);
-
-        color: #e2f8ff;
-        font-weight: 700;
-    }
-
-    .stButton > button:hover {
-        border-color:
-            rgba(70, 213, 255, 0.55);
-
-        color: white;
-    }
-
-    [data-testid="stFileUploader"] {
-        border:
-            1px dashed
-            rgba(70, 213, 255, 0.32);
-
+        border: 1px solid rgba(148,163,184,.13);
+        background: rgba(10,15,24,.76);
         border-radius: 18px;
-
-        background:
-            rgba(5, 16, 29, 0.60);
-
-        padding: 8px;
+        padding: 18px;
+        height: 100%;
+        box-shadow: inset 0 1px rgba(255,255,255,.025);
     }
+    .panel-title { font-weight: 700; font-size: 15px; margin-bottom: 12px; }
+    .mono { font-family: 'Space Mono', monospace; color: #7dd3fc; font-size: 12px; }
 
-    footer {
-        visibility: hidden;
+    .metric {
+        background: rgba(15,23,36,.9);
+        border: 1px solid rgba(148,163,184,.12);
+        border-radius: 14px;
+        padding: 15px;
+        text-align: center;
     }
+    .metric .value { font: 800 24px 'Space Mono', monospace; color: #eaf7ff; }
+    .metric .label { color: #718198; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
 
+    [data-testid="stFileUploaderDropzone"] {
+        background: rgba(8,15,25,.72);
+        border: 1px dashed rgba(0,229,255,.35);
+        border-radius: 16px;
+    }
+    [data-testid="stSidebar"] { background: #080d15; border-right: 1px solid rgba(148,163,184,.12); }
+    .stButton button { border-radius: 10px; }
+    .status { display:inline-flex; align-items:center; gap:8px; color:#a7f3d0; font-size:12px; font-family:'Space Mono',monospace; }
+    .dot { width:8px; height:8px; background:#22c55e; border-radius:50%; box-shadow:0 0 12px #22c55e; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# =========================================================
-# YOLO MODEL
-# =========================================================
-
+# -----------------------------
+# Model
+# -----------------------------
 @st.cache_resource
 def load_model():
     return YOLO("yolov8n.pt")
 
-
-# =========================================================
-# HELPERS
-# =========================================================
-
-def get_position(x1, y1, x2, y2, width, height):
-    """
-    Convert bounding box coordinates into a simple
-    human-readable position.
-    """
-
-    center_x = (x1 + x2) / 2
-    center_y = (y1 + y2) / 2
-
-    horizontal = "center"
-    vertical = "middle"
-
-    if center_x < width * 0.33:
-        horizontal = "left"
-
-    elif center_x > width * 0.66:
-        horizontal = "right"
-
-    if center_y < height * 0.33:
-        vertical = "top"
-
-    elif center_y > height * 0.66:
-        vertical = "bottom"
-
-    if vertical == "middle":
-        return horizontal
-
-    return f"{vertical}-{horizontal}"
-
-
-def create_local_analysis(detections):
-    """
-    Generate a deterministic local analysis using
-    only actual YOLO detections.
-    """
-
-    if not detections:
-        return (
-            "No supported objects were detected in the "
-            "image at the selected confidence threshold."
-        )
-
-    counts = Counter(
-        item["object"]
-        for item in detections
-    )
-
-    total = len(detections)
-
-    object_parts = []
-
-    for name, count in counts.most_common():
-
-        if count == 1:
-            object_parts.append(
-                f"1 {name}"
-            )
-        else:
-            object_parts.append(
-                f"{count} {name}s"
-            )
-
-    if len(object_parts) == 1:
-
-        description = object_parts[0]
-
-    elif len(object_parts) == 2:
-
-        description = (
-            f"{object_parts[0]} and "
-            f"{object_parts[1]}"
-        )
-
-    else:
-
-        description = (
-            ", ".join(object_parts[:-1])
-            + ", and "
-            + object_parts[-1]
-        )
-
-    highest = max(
-        detections,
-        key=lambda item: item["confidence"]
-    )
-
-    highest_confidence = (
-        highest["confidence"] * 100
-    )
-
-    return (
-        f"The visual scan detected {description}. "
-        f"A total of {total} detection(s) were found. "
-        f"The highest-confidence detection is "
-        f"{highest['object']} at "
-        f"{highest_confidence:.1f}% confidence."
-    )
-
-
-def run_investigation(image, confidence):
-    """
-    Run YOLO and convert detections into a clean
-    application-friendly structure.
-    """
-
+with st.spinner("Initializing vision model..."):
     model = load_model()
 
-    image_array = np.array(image)
-
-    result = model(
-        image_array,
-        conf=confidence,
-        verbose=False
-    )[0]
-
-    detections = []
-
-    image_height, image_width = image_array.shape[:2]
-
-    for box in result.boxes:
-
-        class_id = int(
-            box.cls[0]
-        )
-
-        confidence_score = float(
-            box.conf[0]
-        )
-
-        coordinates = (
-            box.xyxy[0]
-            .cpu()
-            .numpy()
-            .tolist()
-        )
-
-        x1, y1, x2, y2 = coordinates
-
-        object_name = model.names[
-            class_id
-        ]
-
-        position = get_position(
-            x1,
-            y1,
-            x2,
-            y2,
-            image_width,
-            image_height
-        )
-
-        detections.append(
-            {
-                "object": object_name,
-                "confidence": confidence_score,
-                "position": position,
-                "x1": int(x1),
-                "y1": int(y1),
-                "x2": int(x2),
-                "y2": int(y2),
-            }
-        )
-
-    annotated_array = result.plot()
-
-    annotated_image = Image.fromarray(
-        annotated_array[..., ::-1]
-    )
-
-    return (
-        annotated_image,
-        detections
-    )
-
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
+# -----------------------------
+# Sidebar controls
+# -----------------------------
 with st.sidebar:
-
-    st.markdown(
-        """
-        <div class="brand">
-            <span class="brand-symbol">◈</span>
-            AI DETECTIVE
-        </div>
-
-        <div class="sidebar-subtitle">
-            Visual Investigation System
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
+    st.markdown("## ◈ VISION CONTROL")
+    st.caption("YOLO Object Detection Agent")
     st.divider()
 
-    st.markdown(
-        '<span class="status-online">'
-        '● SYSTEM ONLINE'
-        '</span>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown("")
-
-    page = st.radio(
-        "NAVIGATION",
-        [
-            "🏠 Command Center",
-            "🔎 Investigate",
-            "🧠 AI Analysis",
-            "🕘 History",
-        ]
-    )
+    confidence = st.slider("Detection confidence", 0.10, 0.95, 0.35, 0.05)
+    st.caption("Lower = more detections · Higher = stricter matching")
 
     st.divider()
-
-    st.markdown(
-        "### VISION CORE"
-    )
-
-    st.caption(
-        "Engine: YOLOv8n"
-    )
-
-    st.caption(
-        "Mode: Image Investigation"
-    )
-
-    st.caption(
-        "AI: Local Analysis"
-    )
-
-
-# =========================================================
-# COMMAND CENTER
-# =========================================================
-
-if page == "🏠 Command Center":
-
-    st.markdown(
-        """
-        <div class="hero">
-
-            <div class="eyebrow">
-                AI / COMPUTER VISION / INVESTIGATION
-            </div>
-
-            <div class="hero-title">
-                AI Detective
-            </div>
-
-            <div class="hero-description">
-                Visual Investigation & Intelligence Platform.
-                Upload an image, detect visual evidence,
-                inspect objects and generate an AI-style
-                investigation summary without requiring
-                an external API.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<div class="section-title">'
-        'COMMAND CENTER'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    total_detections = sum(
-        item.get("detections", 0)
-        for item in st.session_state.history
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    metrics = [
-        (
-            "INVESTIGATIONS",
-            len(st.session_state.history)
-        ),
-        (
-            "IMAGES ANALYZED",
-            len(st.session_state.history)
-        ),
-        (
-            "OBJECTS DETECTED",
-            total_detections
-        ),
-        (
-            "VISION ENGINE",
-            "YOLOv8n"
-        ),
-    ]
-
-    for col, (
-        label,
-        value
-    ) in zip(
-        [c1, c2, c3, c4],
-        metrics
-    ):
-
-        with col:
-
-            st.markdown(
-                f"""
-                <div class="metric">
-
-                    <div class="metric-label">
-                        {label}
-                    </div>
-
-                    <div class="metric-value">
-                        {value}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    st.markdown(
-        '<div class="section-title">'
-        'INVESTIGATION MODULES'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    modules = [
-        (
-            "🔎",
-            "INVESTIGATE",
-            "Upload an image and turn it into visual evidence using YOLO object detection."
-        ),
-        (
-            "🧠",
-            "AI ANALYSIS",
-            "Generate a local investigation summary from the objects actually detected."
-        ),
-        (
-            "🕘",
-            "HISTORY",
-            "Review investigations performed during the current session."
-        ),
-    ]
-
-    cols = st.columns(3)
-
-    for col, (
-        icon,
-        title,
-        description
-    ) in zip(
-        cols,
-        modules
-    ):
-
-        with col:
-
-            st.markdown(
-                f"""
-                <div class="module-card">
-
-                    <div class="module-icon">
-                        {icon}
-                    </div>
-
-                    <div class="module-title">
-                        {title}
-                    </div>
-
-                    <div class="module-text">
-                        {description}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    if st.session_state.history:
-
-        st.markdown(
-            '<div class="section-title">'
-            'LATEST INVESTIGATION'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        latest = (
-            st.session_state.history[-1]
-        )
-
-        st.markdown(
-            f"""
-            <div class="panel">
-
-                <div class="panel-title">
-                    RECENT CASE
-                </div>
-
-                <b>{latest["id"]}</b>
-                &nbsp;&nbsp;
-                {latest["time"]}
-
-                <br><br>
-
-                {latest["summary"]}
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    else:
-
-        st.markdown(
-            """
-            <div class="empty-state">
-
-                <div class="empty-icon">
-                    ◈
-                </div>
-
-                <div class="empty-title">
-                    No investigations yet
-                </div>
-
-                <div class="empty-text">
-                    Open Investigate and upload your first image.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-# =========================================================
-# INVESTIGATE
-# =========================================================
-
-elif page == "🔎 Investigate":
-
-    st.markdown(
-        '<div class="section-title">'
-        'VISUAL INVESTIGATION'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    left, right = st.columns(
-        [1.7, 1]
-    )
-
-    with left:
-
-        uploaded_file = st.file_uploader(
-            "UPLOAD VISUAL EVIDENCE",
-            type=[
-                "jpg",
-                "jpeg",
-                "png",
-                "webp"
-            ],
-            help="Upload a clear image containing objects you want to investigate."
-        )
-
-    with right:
-
-        confidence = st.slider(
-            "DETECTION CONFIDENCE",
-            min_value=0.10,
-            max_value=0.95,
-            value=0.25,
-            step=0.05
-        )
-
-    if uploaded_file is None:
-
-        st.markdown(
-            """
-            <div class="empty-state">
-
-                <div class="empty-icon">
-                    🔎
-                </div>
-
-                <div class="empty-title">
-                    Awaiting visual evidence
-                </div>
-
-                <div class="empty-text">
-                    Upload a JPG, JPEG, PNG or WEBP image
-                    to begin an investigation.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    else:
-
-        try:
-
-            image = Image.open(
-                uploaded_file
-            ).convert("RGB")
-
-            st.markdown(
-                '<div class="section-title">'
-                'EVIDENCE SCAN'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-            with st.spinner(
-                "Scanning visual evidence..."
-            ):
-
-                (
-                    annotated_image,
-                    detections
-                ) = run_investigation(
-                    image,
-                    confidence
-                )
-
-            summary = create_local_analysis(
-                detections
-            )
-
-            timestamp = datetime.now().strftime(
-                "%H:%M:%S"
-            )
-
-            st.session_state.investigation_count += 1
-
-            investigation_id = (
-                f"INV-"
-                f"{st.session_state.investigation_count:04d}"
-            )
-
-            history_item = {
-                "id": investigation_id,
-                "time": timestamp,
-                "filename": uploaded_file.name,
-                "detections": len(detections),
-                "summary": summary,
-            }
-
-            st.session_state.history.append(
-                history_item
-            )
-
-            img_col, result_col = st.columns(
-                2
-            )
-
-            with img_col:
-
-                st.markdown(
-                    """
-                    <div class="panel">
-                        <div class="panel-title">
-                            SOURCE EVIDENCE
-                        </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.image(
-                    image,
-                    use_container_width=True
-                )
-
-                st.markdown(
-                    "</div>",
-                    unsafe_allow_html=True
-                )
-
-            with result_col:
-
-                st.markdown(
-                    """
-                    <div class="panel">
-                        <div class="panel-title">
-                            ANALYZED EVIDENCE
-                        </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                st.image(
-                    annotated_image,
-                    use_container_width=True
-                )
-
-                st.markdown(
-                    "</div>",
-                    unsafe_allow_html=True
-                )
-
-            st.markdown(
-                '<div class="section-title">'
-                'EVIDENCE DETECTED'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-            if detections:
-
-                evidence_cols = st.columns(
-                    min(3, len(detections))
-                )
-
-                for index, detection in enumerate(
-                    detections
-                ):
-
-                    with evidence_cols[
-                        index % len(evidence_cols)
-                    ]:
-
-                        confidence_percent = (
-                            detection["confidence"]
-                            * 100
-                        )
-
-                        st.markdown(
-                            f"""
-                            <div class="evidence-card">
-
-                                <div class="evidence-label">
-                                    EVIDENCE #{index + 1:03d}
-                                </div>
-
-                                <div class="evidence-name">
-                                    {detection["object"].upper()}
-                                </div>
-
-                                <div class="evidence-confidence">
-                                    Confidence:
-                                    {confidence_percent:.1f}%
-                                </div>
-
-                                <div style="
-                                    color:#71899f;
-                                    font-size:12px;
-                                    margin-top:8px;
-                                ">
-                                    Position:
-                                    {detection["position"]}
-                                </div>
-
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
-            else:
-
-                st.info(
-                    "No objects were detected. "
-                    "Try lowering the confidence threshold."
-                )
-
-            st.markdown(
-                '<div class="section-title">'
-                'DETECTION TABLE'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-            if detections:
-
-                table_data = []
-
-                for detection in detections:
-
-                    table_data.append(
-                        {
-                            "Object":
-                            detection["object"],
-
-                            "Confidence":
-                            f"{detection['confidence'] * 100:.1f}%",
-
-                            "Position":
-                            detection["position"],
-                        }
-                    )
-
-                df = pd.DataFrame(
-                    table_data
-                )
-
-                st.dataframe(
-                    df,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-            else:
-
-                st.info(
-                    "No detection records available."
-                )
-
-            st.markdown(
-                '<div class="section-title">'
-                'INVESTIGATION ANALYSIS'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-            st.markdown(
-                f"""
-                <div class="analysis-card">
-
-                    <div class="analysis-title">
-                        LOCAL AI ANALYSIS
-                    </div>
-
-                    <div class="analysis-text">
-                        {summary}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        except Exception as error:
-
-            st.error(
-                "The image could not be analyzed."
-            )
-
-            st.caption(
-                f"Technical detail: {error}"
-            )
-
-
-# =========================================================
-# AI ANALYSIS
-# =========================================================
-
-elif page == "🧠 AI Analysis":
-
-    st.markdown(
-        '<div class="section-title">'
-        'AI VISUAL ANALYSIS'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    if not st.session_state.history:
-
-        st.markdown(
-            """
-            <div class="empty-state">
-
-                <div class="empty-icon">
-                    🧠
-                </div>
-
-                <div class="empty-title">
-                    No analysis available
-                </div>
-
-                <div class="empty-text">
-                    Run an investigation first.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    else:
-
-        options = [
-            item["id"]
-            for item in st.session_state.history
-        ]
-
-        selected_id = st.selectbox(
-            "SELECT INVESTIGATION",
-            options
-        )
-
-        selected = next(
-            item
-            for item in st.session_state.history
-            if item["id"] == selected_id
-        )
-
-        st.markdown(
-            f"""
-            <div class="analysis-card">
-
-                <div class="analysis-title">
-                    INVESTIGATION {selected["id"]}
-                </div>
-
-                <div style="
-                    color:#6e879d;
-                    font-size:12px;
-                    margin-top:8px;
-                ">
-                    {selected["filename"]}
-                    &nbsp; • &nbsp;
-                    {selected["time"]}
-                </div>
-
-                <div class="analysis-text">
-                    {selected["summary"]}
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            '<div class="section-title">'
-            'ANALYSIS NOTES'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        st.info(
-            "This analysis is generated from YOLO's "
-            "actual detections. It does not invent "
-            "objects or claim information that the "
-            "vision model cannot verify."
-        )
-
-
-# =========================================================
-# HISTORY
-# =========================================================
-
-elif page == "🕘 History":
-
-    st.markdown(
-        '<div class="section-title">'
-        'INVESTIGATION HISTORY'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    if not st.session_state.history:
-
-        st.markdown(
-            """
-            <div class="empty-state">
-
-                <div class="empty-icon">
-                    🕘
-                </div>
-
-                <div class="empty-title">
-                    Investigation history is empty
-                </div>
-
-                <div class="empty-text">
-                    Your investigations will appear here
-                    during this session.
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    else:
-
-        history_rows = []
-
-        for item in reversed(
-            st.session_state.history
-        ):
-
-            history_rows.append(
-                {
-                    "Investigation":
-                    item["id"],
-
-                    "Time":
-                    item["time"],
-
-                    "File":
-                    item["filename"],
-
-                    "Detections":
-                    item["detections"],
-                }
-            )
-
-        st.dataframe(
-            pd.DataFrame(
-                history_rows
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.markdown(
-            '<div class="section-title">'
-            'INVESTIGATION REPORTS'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-        for item in reversed(
-            st.session_state.history
-        ):
-
-            st.markdown(
-                f"""
-                <div class="panel"
-                     style="margin-bottom:12px;">
-
-                    <div class="panel-title">
-                        {item["id"]} • {item["time"]}
-                    </div>
-
-                    <b>
-                        {item["filename"]}
-                    </b>
-
-                    <br><br>
-
-                    <span style="
-                        color:#71899f;
-                    ">
-                        {item["detections"]}
-                        detection(s)
-                    </span>
-
-                    <br><br>
-
-                    {item["summary"]}
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-# =========================================================
-# FOOTER
-# =========================================================
-
+    st.markdown("**MODEL STATUS**")
+    st.markdown('<div class="status"><span class="dot"></span> ONLINE</div>', unsafe_allow_html=True)
+    st.markdown("<div class='mono' style='margin-top:10px'>MODEL // YOLOv8n</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mono'>MODE // OBJECT DETECTION</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mono'>INPUT // JPG / JPEG / PNG</div>", unsafe_allow_html=True)
+
+# -----------------------------
+# Hero
+# -----------------------------
 st.markdown(
     """
-    <div style="
-        text-align:center;
-        color:#526a80;
-        font-size:11px;
-        margin-top:40px;
-        padding-top:20px;
-    ">
-        ◈ AI DETECTIVE
-        &nbsp;•&nbsp;
-        VISUAL INTELLIGENCE CORE
-        &nbsp;•&nbsp;
-        YOLO VISION ENGINE
+    <div class="hero">
+      <div class="eyebrow">AI VISION SYSTEM / LIVE INFERENCE</div>
+      <h1>YOLO Vision Agent</h1>
+      <p>Upload an image and let the agent detect objects, estimate confidence, and visualize every prediction in a clean technical dashboard.</p>
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
+
+# -----------------------------
+# Upload
+# -----------------------------
+left, right = st.columns([2.4, 1], gap="large")
+with left:
+    st.markdown('<div class="panel"><div class="panel-title">◉ INPUT IMAGE</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "Drop an image here",
+        type=["jpg", "jpeg", "png"],
+        label_visibility="collapsed",
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with right:
+    st.markdown(
+        """
+        <div class="panel">
+          <div class="panel-title">SYSTEM INFO</div>
+          <div class="mono">STATUS&nbsp;&nbsp;&nbsp;READY</div><br>
+          <div class="mono">ENGINE&nbsp;&nbsp;&nbsp;ULTRALYTICS</div><br>
+          <div class="mono">PIPELINE&nbsp;&nbsp;IMAGE → YOLO → UI</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+if uploaded_file is None:
+    st.markdown(
+        "<div style='text-align:center;color:#5f7188;margin:60px 0;font-family:Space Mono'>WAITING FOR IMAGE INPUT...</div>",
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+# -----------------------------
+# Inference
+# -----------------------------
+image = Image.open(uploaded_file).convert("RGB")
+
+with st.spinner("Running neural inference..."):
+    results = model(np.array(image), conf=confidence, verbose=False)
+
+result = results[0]
+result_array = result.plot()
+result_image = Image.fromarray(result_array[..., ::-1])
+
+boxes = result.boxes
+count = len(boxes)
+classes = [model.names[int(box.cls[0])] for box in boxes]
+confidences = [float(box.conf[0]) for box in boxes]
+counts = Counter(classes)
+avg_conf = (sum(confidences) / count * 100) if count else 0
+
+# -----------------------------
+# Metrics
+# -----------------------------
+st.markdown("### INFERENCE OVERVIEW")
+m1, m2, m3, m4 = st.columns(4)
+for col, value, label in [
+    (m1, count, "Objects detected"),
+    (m2, len(counts), "Unique classes"),
+    (m3, f"{avg_conf:.1f}%", "Avg confidence"),
+    (m4, f"{image.width}×{image.height}", "Input resolution"),
+]:
+    with col:
+        st.markdown(f'<div class="metric"><div class="value">{value}</div><div class="label">{label}</div></div>', unsafe_allow_html=True)
+
+st.write("")
+
+# -----------------------------
+# Images
+# -----------------------------
+col1, col2 = st.columns(2, gap="large")
+with col1:
+    st.markdown('<div class="panel"><div class="panel-title">ORIGINAL FRAME</div>', unsafe_allow_html=True)
+    st.image(image, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col2:
+    st.markdown('<div class="panel"><div class="panel-title">DETECTION FRAME</div>', unsafe_allow_html=True)
+    st.image(result_image, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Detection table / summary
+# -----------------------------
+st.markdown("### DETECTION LOG")
+if count == 0:
+    st.info("No objects detected at the current confidence threshold. Try lowering the confidence slider.")
+else:
+    summary_cols = st.columns(min(4, max(1, len(counts))))
+    for i, (name, qty) in enumerate(counts.items()):
+        with summary_cols[i % len(summary_cols)]:
+            st.markdown(
+                f'<div class="metric"><div class="value">{qty}</div><div class="label">{name}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    rows = []
+    for idx, box in enumerate(boxes, start=1):
+        class_id = int(box.cls[0])
+        rows.append({
+            "#": idx,
+            "Object": model.names[class_id],
+            "Confidence": f"{float(box.conf[0]) * 100:.1f}%",
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+st.caption("YOLO Vision Agent · Object detection only · Closed-set celebrity recognition is a separate pipeline from this detector.")
