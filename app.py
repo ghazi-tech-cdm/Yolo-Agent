@@ -1,4 +1,4 @@
-```python
+
 import json
 from datetime import datetime
 from collections import Counter
@@ -1491,4 +1491,4 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-```
+
