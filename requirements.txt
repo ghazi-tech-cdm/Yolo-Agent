@@ -1,0 +1,5 @@
+streamlit==1.62.0
+ultralytics==8.4.129
+numpy==1.26.4
+pillow==12.3.0
+pandas==3.0.5
