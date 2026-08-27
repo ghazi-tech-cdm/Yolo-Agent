@@ -1107,18 +1107,21 @@ elif page == "Investigation Graph":
    evidence_cols = st.columns(min(4, max(1, len(case["evidence"]))))
 
     if case["evidence"]:
-        for i, evidence in enumerate(case["evidence"]):
-            with evidence_cols[i % len(evidence_cols)]:
-                st.markdown(
-                    f"""
-                    <div class="panel">
-                        <div class="mono">{evidence['id']}</div>
-                        <b>{evidence['name']}</b>
-                        <div class="muted">{evidence['type']} · {evidence['status']}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+    evidence_cols = st.columns(
+        min(4, max(1, len(case["evidence"])))
+    )
+
+    for i, evidence in enumerate(case["evidence"]):
+        with evidence_cols[i % len(evidence_cols)]:
+            st.markdown(
+                f"""
+                <div class="metric">
+                    <div class="value">{evidence}</div>
+                    <div class="label">Evidence</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.markdown("### DETECTED ENTITIES")
 
