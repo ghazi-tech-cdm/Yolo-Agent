@@ -1104,7 +1104,7 @@ elif page == "Investigation Graph":
         unsafe_allow_html=True,
     )
 
-    evidence_cols = st.columns(min(4, max(1, len(case["evidence"])))
+   evidence_cols = st.columns(min(4, max(1, len(case["evidence"]))))
 
     if case["evidence"]:
         for i, evidence in enumerate(case["evidence"]):
