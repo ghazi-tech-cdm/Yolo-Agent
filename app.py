@@ -1041,16 +1041,21 @@ elif page == "Image Intelligence":
 
                     if detected_count:
                         counts = Counter(names)
-                        rows = [
-                            {
-                                "Object": name,
-                                "Count": qty,
-                                "Max Confidence": f"{max(
-                                    [confs[i] for i, n in enumerate(names) if n == name]
-                                ) * 100:.1f}%",
-                            }
-                            for name, qty in counts.items()
-                        ]
+                        rows = []
+                        for name, qty in counts.items():
+                            matching_confs = [
+                                confs[i]
+                                for i, detected_name in enumerate(names)
+                                if detected_name == name
+                            ]
+                            max_confidence = max(matching_confs) * 100
+                            rows.append(
+                                {
+                                    "Object": name,
+                                    "Count": qty,
+                                    "Max Confidence": f"{max_confidence:.1f}%",
+                                }
+                            )
                         st.dataframe(
                             pd.DataFrame(rows),
                             width="stretch",
