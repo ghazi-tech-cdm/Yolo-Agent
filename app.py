@@ -1,19 +1,24 @@
 import json
-from datetime import datetime
 from collections import Counter
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image
 
+# YOLO is imported lazily so the dashboard can start even before the model is needed.
+try:
+    from ultralytics import YOLO
+except Exception:
+    YOLO = None
+
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
-
 st.set_page_config(
-    page_title="CID AI Investigation System",
+    page_title="CID Intelligence Hub",
     page_icon="🕵️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -23,7 +28,6 @@ st.set_page_config(
 # ============================================================
 # STYLING
 # ============================================================
-
 st.markdown(
     """
     <style>
@@ -31,52 +35,42 @@ st.markdown(
 
     .stApp {
         background:
-            radial-gradient(circle at 10% 10%, rgba(0,229,255,.08), transparent 24%),
-            radial-gradient(circle at 90% 15%, rgba(124,58,237,.09), transparent 25%),
+            radial-gradient(circle at 12% 10%, rgba(0,229,255,.08), transparent 24%),
+            radial-gradient(circle at 88% 12%, rgba(124,58,237,.09), transparent 24%),
             linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
             linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
             #070b12;
-        background-size: auto, auto, 38px 38px, 38px 38px;
+        background-size: auto, auto, 34px 34px, 34px 34px;
         color: #e8eef7;
-    }
-
-    html, body, [class*="css"] {
-        font-family: Inter, sans-serif;
     }
 
     .block-container {
         max-width: 1500px;
-        padding-top: 1.5rem;
+        padding-top: 1.4rem;
         padding-bottom: 3rem;
     }
 
-    [data-testid="stSidebar"] {
-        background: #080d15;
-        border-right: 1px solid rgba(148,163,184,.12);
+    h1, h2, h3, p, label, div, span {
+        font-family: Inter, sans-serif;
     }
 
     .hero {
         border: 1px solid rgba(0,229,255,.18);
-        background:
-            linear-gradient(135deg, rgba(10,18,31,.95), rgba(10,14,25,.80));
+        background: linear-gradient(135deg, rgba(10,18,31,.95), rgba(10,14,25,.76));
         border-radius: 22px;
-        padding: 30px 34px;
-        margin-bottom: 22px;
-        box-shadow:
-            0 0 50px rgba(0,229,255,.06),
-            inset 0 1px rgba(255,255,255,.04);
+        padding: 28px 32px;
+        margin-bottom: 20px;
+        box-shadow: 0 0 45px rgba(0,229,255,.05), inset 0 1px rgba(255,255,255,.04);
     }
 
     .eyebrow {
         color: #00e5ff;
-        font-family: 'Space Mono', monospace;
-        font-size: 11px;
-        font-weight: 700;
+        font: 700 11px 'Space Mono', monospace;
         letter-spacing: 2px;
     }
 
     .hero h1 {
-        font-size: 42px;
+        font-size: 40px;
         margin: 8px 0;
         letter-spacing: -1.5px;
     }
@@ -85,49 +79,28 @@ st.markdown(
         color: #93a4ba;
         margin: 0;
         max-width: 850px;
-        font-size: 15px;
+        font-size: 14px;
     }
 
     .panel {
         border: 1px solid rgba(148,163,184,.13);
         background: rgba(10,15,24,.78);
         border-radius: 18px;
-        padding: 20px;
-        margin-bottom: 18px;
+        padding: 18px;
         box-shadow: inset 0 1px rgba(255,255,255,.025);
-    }
-
-    .panel-title {
-        font-weight: 800;
-        font-size: 14px;
-        letter-spacing: .5px;
-        margin-bottom: 14px;
-    }
-
-    .mono {
-        font-family: 'Space Mono', monospace;
-        color: #7dd3fc;
-        font-size: 12px;
-    }
-
-    .muted {
-        color: #718198;
-        font-size: 12px;
     }
 
     .metric {
         background: rgba(15,23,36,.92);
         border: 1px solid rgba(148,163,184,.12);
         border-radius: 14px;
-        padding: 16px;
+        padding: 15px;
         text-align: center;
-        min-height: 88px;
+        min-height: 86px;
     }
 
     .metric .value {
-        font-family: 'Space Mono', monospace;
-        font-weight: 800;
-        font-size: 25px;
+        font: 800 23px 'Space Mono', monospace;
         color: #eaf7ff;
     }
 
@@ -139,74 +112,41 @@ st.markdown(
         margin-top: 5px;
     }
 
-    .finding {
-        border-left: 3px solid #00e5ff;
-        background: rgba(0,229,255,.045);
-        padding: 12px 15px;
-        border-radius: 8px;
-        margin: 8px 0;
-    }
-
-    .finding-title {
-        font-weight: 700;
-        font-size: 13px;
-    }
-
-    .finding-text {
-        color: #9fb0c4;
-        font-size: 12px;
-        margin-top: 4px;
+    .mono {
+        font-family: 'Space Mono', monospace !important;
+        color: #7dd3fc;
+        font-size: 11px;
     }
 
     .tag {
         display: inline-block;
-        padding: 4px 8px;
-        margin: 2px;
-        border: 1px solid rgba(0,229,255,.2);
+        padding: 4px 9px;
         border-radius: 999px;
-        color: #7dd3fc;
-        font-family: 'Space Mono', monospace;
-        font-size: 10px;
-    }
-
-    .status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        color: #a7f3d0;
-        font-family: 'Space Mono', monospace;
+        background: rgba(0,229,255,.08);
+        border: 1px solid rgba(0,229,255,.16);
+        color: #8be9ff;
         font-size: 11px;
+        margin: 2px;
     }
 
-    .dot {
-        width: 8px;
-        height: 8px;
-        background: #22c55e;
-        border-radius: 50%;
-        box-shadow: 0 0 12px #22c55e;
+    [data-testid="stSidebar"] {
+        background: #080d15;
+        border-right: 1px solid rgba(148,163,184,.12);
     }
 
-    .section-title {
-        font-size: 18px;
-        font-weight: 800;
-        margin: 22px 0 12px;
-    }
-
-    .big-number {
-        font-family: 'Space Mono', monospace;
-        font-size: 34px;
-        font-weight: 800;
-    }
-
-    div[data-testid="stFileUploaderDropzone"] {
+    [data-testid="stFileUploaderDropzone"] {
         background: rgba(8,15,25,.72);
         border: 1px dashed rgba(0,229,255,.35);
         border-radius: 16px;
     }
 
-    .stButton button {
+    .stButton button, .stDownloadButton button {
         border-radius: 10px;
-        font-weight: 700;
+    }
+
+    .small-muted {
+        color: #718198;
+        font-size: 12px;
     }
     </style>
     """,
@@ -215,1096 +155,1032 @@ st.markdown(
 
 
 # ============================================================
-# SESSION STATE
+# SESSION DATA
 # ============================================================
+def new_state():
+    return {
+        "cases": [],
+        "persons": [],
+        "evidence": [],
+        "clues": [],
+        "timeline": [],
+        "locations": [],
+        "board": [],
+        "next_case": 1,
+        "next_person": 1,
+        "next_evidence": 1,
+        "next_clue": 1,
+        "next_event": 1,
+        "next_location": 1,
+        "next_board": 1,
+    }
 
-if "case" not in st.session_state:
-    st.session_state.case = None
 
-if "yolo_model" not in st.session_state:
-    st.session_state.yolo_model = None
+if "db" not in st.session_state:
+    st.session_state.db = new_state()
 
-if "yolo_error" not in st.session_state:
-    st.session_state.yolo_error = None
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-if "detected_image" not in st.session_state:
-    st.session_state.detected_image = None
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
 
-if "detection_rows" not in st.session_state:
-    st.session_state.detection_rows = []
+if "selected_case_id" not in st.session_state:
+    st.session_state.selected_case_id = None
 
-if "uploaded_filename" not in st.session_state:
-    st.session_state.uploaded_filename = None
+
+db = st.session_state.db
 
 
 # ============================================================
 # HELPERS
 # ============================================================
-
-def now_string():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def make_case_id():
-    return "CID-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+def now_text():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def create_demo_case():
-    timestamp = now_string()
+def make_id(prefix, number):
+    return f"{prefix}-{number:03d}"
 
+
+def get_case(case_id):
+    return next((x for x in db["cases"] if x["id"] == case_id), None)
+
+
+def selected_case():
+    return get_case(st.session_state.selected_case_id)
+
+
+def case_options():
+    return {f'{c["id"]} — {c["title"]}': c["id"] for c in db["cases"]}
+
+
+def case_counts(case_id):
     return {
-        "case_id": "CID-DEMO-001",
-        "title": "Warehouse Night Incident",
-        "status": "ACTIVE",
-        "priority": "HIGH",
-        "location": "Sector 17 Industrial Warehouse",
-        "created_at": timestamp,
-        "investigator": "AI Investigation Unit",
-
-        "evidence": [
-            {
-                "id": "EV-001",
-                "type": "Image",
-                "name": "warehouse_scene.jpg",
-                "source": "CCTV Frame",
-                "status": "ANALYZED",
-            },
-            {
-                "id": "EV-002",
-                "type": "Document",
-                "name": "incident_report.pdf",
-                "source": "Case File",
-                "status": "LINKED",
-            },
-        ],
-
-        "persons": [
-            {
-                "id": "PER-001",
-                "name": "Person #1",
-                "role": "Unknown",
-                "status": "UNIDENTIFIED",
-            },
-            {
-                "id": "PER-002",
-                "name": "Person #2",
-                "role": "Unknown",
-                "status": "UNIDENTIFIED",
-            },
-        ],
-
-        "objects": [
-            {
-                "id": "OBJ-001",
-                "name": "Person",
-                "source": "EV-001",
-                "confidence": 0.91,
-            },
-            {
-                "id": "OBJ-002",
-                "name": "Person",
-                "source": "EV-001",
-                "confidence": 0.87,
-            },
-            {
-                "id": "OBJ-003",
-                "name": "Car",
-                "source": "EV-001",
-                "confidence": 0.84,
-            },
-            {
-                "id": "OBJ-004",
-                "name": "Backpack",
-                "source": "EV-001",
-                "confidence": 0.78,
-            },
-        ],
-
-        "clues": [
-            {
-                "id": "CL-001",
-                "title": "Multiple persons detected",
-                "priority": "HIGH",
-                "source": "EV-001",
-            },
-            {
-                "id": "CL-002",
-                "title": "Vehicle present near scene",
-                "priority": "MEDIUM",
-                "source": "EV-001",
-            },
-            {
-                "id": "CL-003",
-                "title": "Backpack detected",
-                "priority": "MEDIUM",
-                "source": "EV-001",
-            },
-        ],
-
-        "findings": [
-            {
-                "id": "AI-001",
-                "title": "Multiple individuals detected",
-                "text": "Computer vision detected two person instances in the submitted evidence.",
-                "severity": "HIGH",
-            },
-            {
-                "id": "AI-002",
-                "title": "Vehicle associated with scene",
-                "text": "A vehicle was detected in the same visual frame as the identified persons.",
-                "severity": "MEDIUM",
-            },
-            {
-                "id": "AI-003",
-                "title": "Portable object detected",
-                "text": "A backpack-like object was detected and linked to the evidence frame.",
-                "severity": "MEDIUM",
-            },
-        ],
-
-        "timeline": [
-            {
-                "time": "22:14",
-                "event": "CCTV frame captured",
-                "source": "EV-001",
-            },
-            {
-                "time": "22:16",
-                "event": "Evidence imported into case",
-                "source": "SYSTEM",
-            },
-            {
-                "time": "22:17",
-                "event": "YOLO visual analysis completed",
-                "source": "AI ENGINE",
-            },
-            {
-                "time": "22:18",
-                "event": "AI findings generated",
-                "source": "AI ENGINE",
-            },
-        ],
+        "persons": sum(x["case_id"] == case_id for x in db["persons"]),
+        "evidence": sum(x["case_id"] == case_id for x in db["evidence"]),
+        "clues": sum(x["case_id"] == case_id for x in db["clues"]),
+        "timeline": sum(x["case_id"] == case_id for x in db["timeline"]),
+        "locations": sum(x["case_id"] == case_id for x in db["locations"]),
     }
 
 
-def load_yolo():
-    if st.session_state.yolo_model is not None:
-        return st.session_state.yolo_model
-
-    try:
-        from ultralytics import YOLO
-
-        with st.spinner("Loading YOLO vision engine..."):
-            model = YOLO("yolov8n.pt")
-
-        st.session_state.yolo_model = model
-        st.session_state.yolo_error = None
-        return model
-
-    except Exception as exc:
-        st.session_state.yolo_error = str(exc)
-        return None
+def ensure_case_selected():
+    if not db["cases"]:
+        return False
+    if not get_case(st.session_state.selected_case_id):
+        st.session_state.selected_case_id = db["cases"][0]["id"]
+    return True
 
 
-def generate_findings_from_detections(detection_rows):
-    findings = []
-
-    if not detection_rows:
-        return [
-            {
-                "id": "AI-001",
-                "title": "No objects detected",
-                "text": "No object passed the current confidence threshold.",
-                "severity": "LOW",
-            }
-        ]
-
-    counts = Counter(row["Object"] for row in detection_rows)
-
-    finding_number = 1
-
-    for object_name, quantity in counts.items():
-        severity = "MEDIUM"
-
-        if object_name.lower() == "person":
-            severity = "HIGH"
-
-        if quantity >= 3:
-            severity = "HIGH"
-
-        findings.append(
-            {
-                "id": f"AI-{finding_number:03d}",
-                "title": f"{quantity} × {object_name} detected",
-                "text": (
-                    f"YOLO detected {quantity} instance(s) of "
-                    f"{object_name.lower()} in the submitted evidence."
-                ),
-                "severity": severity,
-            }
-        )
-
-        finding_number += 1
-
-    if "person" in {name.lower() for name in counts} and (
-        "car" in {name.lower() for name in counts}
-        or "truck" in {name.lower() for name in counts}
-        or "motorcycle" in {name.lower() for name in counts}
-    ):
-        findings.append(
-            {
-                "id": f"AI-{finding_number:03d}",
-                "title": "Person + vehicle co-occurrence",
-                "text": (
-                    "A person and vehicle were detected in the same evidence "
-                    "frame. This relationship has been added as an investigative clue."
-                ),
-                "severity": "HIGH",
-            }
-        )
-
-    return findings
+def add_case(title, category, priority, status, summary):
+    case_id = make_id("CASE", db["next_case"])
+    db["next_case"] += 1
+    item = {
+        "id": case_id,
+        "title": title,
+        "category": category,
+        "priority": priority,
+        "status": status,
+        "summary": summary,
+        "created": now_text(),
+    }
+    db["cases"].append(item)
+    st.session_state.selected_case_id = case_id
+    return case_id
 
 
-def analyze_image(image, confidence):
-    model = load_yolo()
-
-    if model is None:
-        return None, []
-
-    with st.spinner("Running YOLO visual analysis..."):
-        results = model(
-            np.array(image),
-            conf=confidence,
-            verbose=False,
-        )
-
-    result = results[0]
-
-    plotted = result.plot()
-
-    plotted_rgb = plotted[..., ::-1]
-    output_image = Image.fromarray(plotted_rgb)
-
-    rows = []
-
-    if result.boxes is not None:
-        for index, box in enumerate(result.boxes, start=1):
-            class_id = int(box.cls[0])
-            object_name = model.names[class_id]
-            confidence_value = float(box.conf[0])
-
-            rows.append(
-                {
-                    "#": index,
-                    "Object": object_name,
-                    "Confidence": f"{confidence_value * 100:.1f}%",
-                }
-            )
-
-    return output_image, rows
-
-
-def ensure_case():
-    if st.session_state.case is None:
-        st.session_state.case = {
-            "case_id": make_case_id(),
-            "title": "New Investigation",
-            "status": "ACTIVE",
-            "priority": "MEDIUM",
-            "location": "Not specified",
-            "created_at": now_string(),
-            "investigator": "CID AI Unit",
-            "evidence": [],
-            "persons": [],
-            "objects": [],
-            "clues": [],
-            "findings": [],
-            "timeline": [],
-        }
-
-
-def add_yolo_results_to_case(filename, detection_rows):
-    ensure_case()
-
-    case = st.session_state.case
-
-    evidence_id = f"EV-{len(case['evidence']) + 1:03d}"
-
-    case["evidence"].append(
+def add_person(case_id, name, role, phone, notes):
+    pid = make_id("PER", db["next_person"])
+    db["next_person"] += 1
+    db["persons"].append(
         {
-            "id": evidence_id,
-            "type": "Image",
-            "name": filename,
-            "source": "Uploaded Evidence",
-            "status": "ANALYZED",
+            "id": pid,
+            "case_id": case_id,
+            "name": name,
+            "role": role,
+            "phone": phone,
+            "notes": notes,
+            "created": now_text(),
         }
     )
+    return pid
 
-    object_start = len(case["objects"]) + 1
 
-    for offset, row in enumerate(detection_rows):
-        confidence_text = row["Confidence"].replace("%", "")
-        confidence_value = float(confidence_text) / 100
-
-        case["objects"].append(
-            {
-                "id": f"OBJ-{object_start + offset:03d}",
-                "name": row["Object"],
-                "source": evidence_id,
-                "confidence": confidence_value,
-            }
-        )
-
-    new_findings = generate_findings_from_detections(detection_rows)
-
-    for finding in new_findings:
-        finding["id"] = f"AI-{len(case['findings']) + 1:03d}"
-        case["findings"].append(finding)
-
-    unique_objects = Counter(row["Object"] for row in detection_rows)
-
-    for object_name, quantity in unique_objects.items():
-        clue_id = f"CL-{len(case['clues']) + 1:03d}"
-
-        priority = "HIGH" if object_name.lower() == "person" else "MEDIUM"
-
-        case["clues"].append(
-            {
-                "id": clue_id,
-                "title": f"{quantity} × {object_name} detected",
-                "priority": priority,
-                "source": evidence_id,
-            }
-        )
-
-    case["timeline"].append(
+def add_evidence(case_id, title, kind, source, description, linked_person=""):
+    eid = make_id("EVD", db["next_evidence"])
+    db["next_evidence"] += 1
+    db["evidence"].append(
         {
-            "time": datetime.now().strftime("%H:%M"),
-            "event": f"YOLO analyzed {filename}",
-            "source": evidence_id,
+            "id": eid,
+            "case_id": case_id,
+            "title": title,
+            "kind": kind,
+            "source": source,
+            "description": description,
+            "linked_person": linked_person,
+            "created": now_text(),
         }
     )
+    return eid
 
-    case["timeline"].append(
+
+def add_clue(case_id, title, strength, status, description):
+    cid = make_id("CLUE", db["next_clue"])
+    db["next_clue"] += 1
+    db["clues"].append(
         {
-            "time": datetime.now().strftime("%H:%M"),
-            "event": f"{len(detection_rows)} detection(s) converted into investigation data",
-            "source": "AI ENGINE",
+            "id": cid,
+            "case_id": case_id,
+            "title": title,
+            "strength": strength,
+            "status": status,
+            "description": description,
+            "created": now_text(),
         }
     )
+    return cid
 
 
-def case_json():
-    ensure_case()
-    return json.dumps(st.session_state.case, indent=2, ensure_ascii=False)
+def add_event(case_id, title, date_text, location, description):
+    eid = make_id("EVT", db["next_event"])
+    db["next_event"] += 1
+    db["timeline"].append(
+        {
+            "id": eid,
+            "case_id": case_id,
+            "title": title,
+            "date": date_text,
+            "location": location,
+            "description": description,
+        }
+    )
+    return eid
+
+
+def add_location(case_id, name, address, category, notes):
+    lid = make_id("LOC", db["next_location"])
+    db["next_location"] += 1
+    db["locations"].append(
+        {
+            "id": lid,
+            "case_id": case_id,
+            "name": name,
+            "address": address,
+            "category": category,
+            "notes": notes,
+        }
+    )
+    return lid
+
+
+def add_board_item(case_id, item_type, item_id, note):
+    bid = make_id("LINK", db["next_board"])
+    db["next_board"] += 1
+    db["board"].append(
+        {
+            "id": bid,
+            "case_id": case_id,
+            "item_type": item_type,
+            "item_id": item_id,
+            "note": note,
+        }
+    )
+    return bid
+
+
+def seed_demo():
+    if db["cases"]:
+        return
+
+    cid = add_case(
+        "Warehouse Night Incident",
+        "Theft",
+        "HIGH",
+        "Active",
+        "Night-time warehouse incident with CCTV evidence, a vehicle lead and multiple persons of interest.",
+    )
+    p1 = add_person(cid, "Ali R.", "Person of Interest", "+92 300 0000000", "Seen near warehouse access road.")
+    p2 = add_person(cid, "Bilal K.", "Witness", "+92 301 0000000", "Reported unusual vehicle movement.")
+    e1 = add_evidence(
+        cid,
+        "Warehouse CCTV",
+        "Image",
+        "Security Camera 04",
+        "Frame showing a vehicle and two people near the loading gate.",
+        p1,
+    )
+    e2 = add_evidence(
+        cid,
+        "Vehicle Observation",
+        "Observation",
+        "Witness statement",
+        "Dark vehicle reportedly left the area around 02:15.",
+        p2,
+    )
+    cl1 = add_clue(
+        cid,
+        "Vehicle movement",
+        "Strong",
+        "Open",
+        "Witness account and CCTV appear to point to the same time window.",
+    )
+    add_event(cid, "Incident reported", "2026-08-20 02:05", "Warehouse Gate", "Alarm triggered.")
+    add_event(cid, "Vehicle observed", "2026-08-20 02:15", "Access Road", "Witness saw a dark vehicle.")
+    add_location(cid, "Warehouse Gate", "Sector Industrial Area", "Scene", "Primary incident location.")
+    add_board_item(cid, "Evidence", e1, "Compare with vehicle observation.")
+    add_board_item(cid, "Evidence", e2, "Check time consistency.")
+    add_board_item(cid, "Clue", cl1, "Potential connection.")
+    st.session_state.selected_case_id = cid
+
+
+def get_person_name(person_id):
+    if not person_id:
+        return "—"
+    person = next((x for x in db["persons"] if x["id"] == person_id), None)
+    return person["name"] if person else person_id
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+if not st.session_state.logged_in:
+    st.markdown(
+        """
+        <div class="hero">
+            <div class="eyebrow">CID / CONTROLLED INVESTIGATION ENVIRONMENT</div>
+            <h1>🕵️ CID Intelligence Hub</h1>
+            <p>Case management, linked evidence, persons, clues, timeline analysis and optional YOLO image intelligence.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    a, b, c = st.columns([1, 1.2, 1])
+    with b:
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.subheader("Secure Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("ENTER CONTROL ROOM", type="primary", width="stretch"):
+            if username == "admin" and password == "admin123":
+                st.session_state.logged_in = True
+                seed_demo()
+                st.rerun()
+            else:
+                st.error("Invalid credentials.")
+        st.caption("Demo login: admin / admin123")
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
-
 with st.sidebar:
-    st.markdown("## 🕵️ CID AI CONTROL")
-    st.caption("Computer-Assisted Investigation Dashboard")
+    st.markdown("## 🕵️ CID CONTROL")
+    st.caption("Connected Investigation Workspace")
     st.divider()
 
-    st.markdown(
-        '<div class="status"><span class="dot"></span> SYSTEM ONLINE</div>',
-        unsafe_allow_html=True,
-    )
+    pages = [
+        "Dashboard",
+        "Case Files",
+        "Persons",
+        "Evidence",
+        "Clues",
+        "Investigation Board",
+        "Timeline",
+        "Locations",
+        "Image Intelligence",
+        "Analytics",
+        "Report",
+    ]
 
-    st.write("")
-
-    page = st.radio(
-        "NAVIGATION",
-        [
-            "Command Center",
-            "Evidence Intelligence",
-            "Investigation Graph",
-            "Timeline",
-            "Case Report",
-        ],
-    )
-
-    st.divider()
-
-    confidence = st.slider(
-        "YOLO Confidence",
-        min_value=0.10,
-        max_value=0.95,
-        value=0.35,
-        step=0.05,
-    )
-
-    st.caption("Lower threshold = more detections.")
+    page = st.radio("MODULES", pages, index=pages.index(st.session_state.page))
+    st.session_state.page = page
 
     st.divider()
 
-    if st.button("⚡ LOAD DEMO CASE", width="stretch"):
-        st.session_state.case = create_demo_case()
-        st.session_state.detected_image = None
-        st.session_state.detection_rows = []
-        st.session_state.uploaded_filename = None
+    if db["cases"]:
+        labels = list(case_options().keys())
+        current_label = next(
+            (k for k, v in case_options().items() if v == st.session_state.selected_case_id),
+            labels[0],
+        )
+        chosen = st.selectbox("ACTIVE CASE", labels, index=labels.index(current_label))
+        st.session_state.selected_case_id = case_options()[chosen]
+    else:
+        st.info("Create a case first.")
+
+    st.divider()
+    st.markdown('<div class="mono">SYSTEM // ONLINE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="mono">MODE // CASE INTELLIGENCE</div>', unsafe_allow_html=True)
+
+    if st.button("Reset Demo Data", width="stretch"):
+        st.session_state.db = new_state()
+        db = st.session_state.db
+        seed_demo()
         st.rerun()
 
-    if st.button("＋ NEW EMPTY CASE", width="stretch"):
-        st.session_state.case = None
-        st.session_state.detected_image = None
-        st.session_state.detection_rows = []
-        st.session_state.uploaded_filename = None
+    if st.button("Logout", width="stretch"):
+        st.session_state.logged_in = False
         st.rerun()
-
-    st.divider()
-
-    st.markdown(
-        '<div class="mono">ENGINE // YOLOv8n</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="mono">MODE // OBJECT DETECTION</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="mono">PIPELINE // IMAGE → AI → CASE</div>',
-        unsafe_allow_html=True,
-    )
 
 
 # ============================================================
-# HERO
+# TOP BAR
 # ============================================================
+case = selected_case()
 
 st.markdown(
     """
     <div class="hero">
-        <div class="eyebrow">CID / AI INVESTIGATION PLATFORM / LIVE SYSTEM</div>
-        <h1>Command Investigation Intelligence</h1>
-        <p>
-            An interconnected investigation dashboard where evidence,
-            computer vision, objects, clues, findings and timeline events
-            automatically connect to the active case.
-        </p>
+        <div class="eyebrow">AI-ASSISTED CASE MANAGEMENT / LINKED DATA</div>
+        <h1>CID Intelligence Hub</h1>
+        <p>Everything is connected through the active case: persons ↔ evidence ↔ clues ↔ timeline ↔ locations ↔ investigation board.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+if case:
+    st.markdown(
+        f"""
+        <div class="panel">
+            <span class="tag">{case["id"]}</span>
+            <span class="tag">{case["status"]}</span>
+            <span class="tag">{case["priority"]} PRIORITY</span>
+            <strong style="font-size:18px">{case["title"]}</strong>
+            <div class="small-muted" style="margin-top:8px">{case["summary"]}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.warning("No case exists. Create one from Case Files.")
+
 
 # ============================================================
-# COMMAND CENTER
+# DASHBOARD
 # ============================================================
+if page == "Dashboard":
+    st.markdown("### LIVE CASE OVERVIEW")
 
-if page == "Command Center":
-
-    if st.session_state.case is None:
-        st.markdown(
-            """
-            <div class="panel">
-                <div class="panel-title">NO ACTIVE CASE</div>
-                <div class="muted">
-                    Start with <b>LOAD DEMO CASE</b> for an instant investigation
-                    scenario, or create an empty case.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        a, b, c = st.columns(3)
-
-        with a:
-            st.metric("System", "ONLINE")
-
-        with b:
-            st.metric("AI Engine", "READY")
-
-        with c:
-            st.metric("Case", "NONE")
-
+    if not case:
+        st.info("Create your first case from Case Files.")
     else:
-        case = st.session_state.case
-
-        st.markdown(
-            f"""
-            <div class="panel">
-                <div class="panel-title">ACTIVE CASE</div>
-                <div class="mono">{case['case_id']}</div>
-                <h2 style="margin-bottom:4px;">{case['title']}</h2>
-                <div class="muted">
-                    {case['location']} · Priority: {case['priority']} ·
-                    Investigator: {case['investigator']}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("### LIVE CASE OVERVIEW")
-
+        counts = case_counts(case["id"])
+        cols = st.columns(6)
         metrics = [
-            ("Evidence", len(case["evidence"])),
-            ("Persons", len(case["persons"])),
-            ("Objects", len(case["objects"])),
-            ("Clues", len(case["clues"])),
-            ("AI Findings", len(case["findings"])),
-            ("Timeline Events", len(case["timeline"])),
+            (len(db["cases"]), "Total cases"),
+            (counts["persons"], "Persons"),
+            (counts["evidence"], "Evidence"),
+            (counts["clues"], "Clues"),
+            (counts["timeline"], "Timeline events"),
+            (counts["locations"], "Locations"),
         ]
-
-        metric_cols = st.columns(6)
-
-        for col, (label, value) in zip(metric_cols, metrics):
+        for col, value, label in zip(cols, *zip(*metrics)):
             with col:
                 st.markdown(
-                    f"""
-                    <div class="metric">
-                        <div class="value">{value}</div>
-                        <div class="label">{label}</div>
-                    </div>
-                    """,
+                    f'<div class="metric"><div class="value">{value}</div><div class="label">{label}</div></div>',
                     unsafe_allow_html=True,
                 )
 
         st.write("")
-
-        left, right = st.columns([1.15, 1], gap="large")
+        left, right = st.columns([1.3, 1])
 
         with left:
-            st.markdown(
-                '<div class="panel"><div class="panel-title">🧠 AI FINDINGS</div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown("#### Case Activity")
+            activities = []
+            for x in db["evidence"]:
+                if x["case_id"] == case["id"]:
+                    activities.append(("Evidence", x["created"], x["title"]))
+            for x in db["clues"]:
+                if x["case_id"] == case["id"]:
+                    activities.append(("Clue", x["created"], x["title"]))
+            for x in db["persons"]:
+                if x["case_id"] == case["id"]:
+                    activities.append(("Person", x["created"], x["name"]))
 
-            if case["findings"]:
-                for finding in case["findings"]:
-                    st.markdown(
-                        f"""
-                        <div class="finding">
-                            <div class="finding-title">
-                                {finding['id']} · {finding['title']}
-                            </div>
-                            <div class="finding-text">
-                                {finding['text']}
-                            </div>
-                            <div class="tag">{finding['severity']}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+            if activities:
+                activities.sort(key=lambda x: x[1], reverse=True)
+                st.dataframe(
+                    pd.DataFrame(activities, columns=["Type", "Time", "Item"]),
+                    width="stretch",
+                    hide_index=True,
+                )
             else:
-                st.info("No AI findings yet.")
-
-            st.markdown("</div>", unsafe_allow_html=True)
+                st.info("No activity yet.")
 
         with right:
-            st.markdown(
-                '<div class="panel"><div class="panel-title">🔗 CASE CONNECTIONS</div>',
-                unsafe_allow_html=True,
-            )
-
+            st.markdown("#### Connected Intelligence")
             st.markdown(
                 f"""
-                <div class="mono">
-                CASE<br>
-                ↓<br>
-                {len(case['evidence'])} EVIDENCE ITEMS<br>
-                ↓<br>
-                {len(case['objects'])} DETECTED OBJECTS<br>
-                ↓<br>
-                {len(case['clues'])} CLUES<br>
-                ↓<br>
-                {len(case['findings'])} AI FINDINGS<br>
-                ↓<br>
-                {len(case['timeline'])} TIMELINE EVENTS
+                <div class="panel">
+                    <div class="mono">CASE ID</div>
+                    <h3>{case["id"]}</h3>
+                    <div class="mono">CREATED</div>
+                    <p>{case["created"]}</p>
+                    <div class="mono">CATEGORY</div>
+                    <p>{case["category"]}</p>
+                    <div class="mono">LINKS</div>
+                    <p>{counts["evidence"] + counts["clues"] + counts["persons"] + counts["timeline"] + counts["locations"]} connected records</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("### RECENT INVESTIGATION EVENTS")
+# ============================================================
+# CASE FILES
+# ============================================================
+elif page == "Case Files":
+    st.markdown("### CASE FILES")
 
-        if case["timeline"]:
-            timeline_df = pd.DataFrame(case["timeline"][-6:])
+    with st.expander("➕ Create New Case", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            title = st.text_input("Case title", key="new_case_title")
+            category = st.selectbox(
+                "Category",
+                ["Theft", "Missing Person", "Fraud", "Assault", "Cyber", "Other"],
+                key="new_case_category",
+            )
+            priority = st.selectbox(
+                "Priority", ["LOW", "MEDIUM", "HIGH", "CRITICAL"], key="new_case_priority"
+            )
+        with c2:
+            status = st.selectbox(
+                "Status", ["Active", "Under Review", "Closed"], key="new_case_status"
+            )
+            summary = st.text_area("Case summary", key="new_case_summary")
+
+        if st.button("CREATE CASE", type="primary"):
+            if title.strip():
+                cid = add_case(title.strip(), category, priority, status, summary.strip())
+                st.success(f"Created {cid}. All other modules now use this case automatically.")
+                st.rerun()
+            else:
+                st.error("Case title is required.")
+
+    st.write("")
+    if db["cases"]:
+        rows = [
+            {
+                "ID": c["id"],
+                "Title": c["title"],
+                "Category": c["category"],
+                "Priority": c["priority"],
+                "Status": c["status"],
+                "Created": c["created"],
+            }
+            for c in db["cases"]
+        ]
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    else:
+        st.info("No cases.")
+
+
+# ============================================================
+# PERSONS
+# ============================================================
+elif page == "Persons":
+    st.markdown("### PERSONS / PERSONS OF INTEREST")
+
+    if not case:
+        st.warning("Create/select a case first.")
+    else:
+        with st.expander("➕ Add Person", expanded=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                name = st.text_input("Name")
+                role = st.selectbox(
+                    "Role",
+                    ["Person of Interest", "Witness", "Complainant", "Victim", "Other"],
+                )
+            with c2:
+                phone = st.text_input("Contact")
+                notes = st.text_area("Notes")
+
+            if st.button("ADD PERSON", type="primary"):
+                if name.strip():
+                    add_person(case["id"], name.strip(), role, phone.strip(), notes.strip())
+                    st.success("Person linked to the active case.")
+                    st.rerun()
+                else:
+                    st.error("Name is required.")
+
+        persons = [x for x in db["persons"] if x["case_id"] == case["id"]]
+        if persons:
             st.dataframe(
-                timeline_df,
+                pd.DataFrame(
+                    [
+                        {
+                            "ID": x["id"],
+                            "Name": x["name"],
+                            "Role": x["role"],
+                            "Contact": x["phone"],
+                            "Notes": x["notes"],
+                        }
+                        for x in persons
+                    ]
+                ),
                 width="stretch",
                 hide_index=True,
             )
+        else:
+            st.info("No persons linked to this case.")
 
 
 # ============================================================
-# EVIDENCE INTELLIGENCE
+# EVIDENCE
 # ============================================================
+elif page == "Evidence":
+    st.markdown("### EVIDENCE VAULT")
 
-elif page == "Evidence Intelligence":
-
-    st.markdown(
-        """
-        <div class="panel">
-            <div class="panel-title">📸 AI EVIDENCE INTELLIGENCE</div>
-            <div class="muted">
-                Upload an evidence image. YOLO analyzes it and automatically
-                inserts detections, clues, findings and timeline events into
-                the active investigation.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    ensure_case()
-
-    uploaded_file = st.file_uploader(
-        "Upload evidence image",
-        type=["jpg", "jpeg", "png"],
-    )
-
-    if uploaded_file is not None:
-
-        image = Image.open(uploaded_file).convert("RGB")
-
-        col1, col2 = st.columns(2, gap="large")
-
-        with col1:
-            st.markdown(
-                '<div class="panel"><div class="panel-title">ORIGINAL EVIDENCE</div>',
-                unsafe_allow_html=True,
-            )
-            st.image(image, width="stretch")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        if st.button("🧠 RUN AI INVESTIGATION", type="primary", width="stretch"):
-
-            output_image, rows = analyze_image(
-                image,
-                confidence,
-            )
-
-            if output_image is not None:
-
-                st.session_state.detected_image = output_image
-                st.session_state.detection_rows = rows
-                st.session_state.uploaded_filename = uploaded_file.name
-
-                add_yolo_results_to_case(
-                    uploaded_file.name,
-                    rows,
-                )
-
-                st.success(
-                    f"AI investigation completed — {len(rows)} object(s) detected and linked to the case."
-                )
-
-        with col2:
-            st.markdown(
-                '<div class="panel"><div class="panel-title">YOLO DETECTION FRAME</div>',
-                unsafe_allow_html=True,
-            )
-
-            if st.session_state.detected_image is not None:
-                st.image(
-                    st.session_state.detected_image,
-                    width="stretch",
-                )
-            else:
-                st.info("Run AI Investigation to analyze this evidence.")
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    if st.session_state.yolo_error:
-        st.error(
-            "YOLO could not be loaded. "
-            + st.session_state.yolo_error
-        )
-
-    if st.session_state.detection_rows:
-
-        st.markdown("### DETECTION RESULTS")
-
-        rows = st.session_state.detection_rows
-
-        count = len(rows)
-        classes = Counter(row["Object"] for row in rows)
-
-        a, b, c = st.columns(3)
-
-        with a:
-            st.markdown(
-                f"""
-                <div class="metric">
-                    <div class="value">{count}</div>
-                    <div class="label">Objects Detected</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        with b:
-            st.markdown(
-                f"""
-                <div class="metric">
-                    <div class="value">{len(classes)}</div>
-                    <div class="label">Unique Classes</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        with c:
-            confidence_values = [
-                float(row["Confidence"].replace("%", ""))
-                for row in rows
-            ]
-
-            avg = sum(confidence_values) / len(confidence_values)
-
-            st.markdown(
-                f"""
-                <div class="metric">
-                    <div class="value">{avg:.1f}%</div>
-                    <div class="label">Average Confidence</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.write("")
-
-        st.dataframe(
-            pd.DataFrame(rows),
-            width="stretch",
-            hide_index=True,
-        )
-
-        st.markdown("### AUTOMATICALLY GENERATED FINDINGS")
-
-        for finding in st.session_state.case["findings"][-10:]:
-            st.markdown(
-                f"""
-                <div class="finding">
-                    <div class="finding-title">
-                        {finding['id']} · {finding['title']}
-                    </div>
-                    <div class="finding-text">
-                        {finding['text']}
-                    </div>
-                    <span class="tag">{finding['severity']}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-
-# ============================================================
-# INVESTIGATION GRAPH
-# ============================================================
-
-elif page == "Investigation Graph":
-
-    ensure_case()
-
-    case = st.session_state.case
-
-    st.markdown(
-        """
-        <div class="panel">
-            <div class="panel-title">🕸️ INTERCONNECTED INVESTIGATION GRAPH</div>
-            <div class="muted">
-                This view shows how case entities connect to evidence,
-                detections, clues and AI findings.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    graph_rows = []
-
-    graph_rows.append(
-        {
-            "From": case["case_id"],
-            "Relationship": "contains",
-            "To": f"{len(case['evidence'])} evidence item(s)",
-        }
-    )
-
-    for evidence in case["evidence"]:
-        graph_rows.append(
-            {
-                "From": case["case_id"],
-                "Relationship": "contains",
-                "To": evidence["id"],
-            }
-        )
-
-    for obj in case["objects"]:
-        graph_rows.append(
-            {
-                "From": obj["source"],
-                "Relationship": "detected",
-                "To": f"{obj['id']} / {obj['name']}",
-            }
-        )
-
-    for clue in case["clues"]:
-        graph_rows.append(
-            {
-                "From": clue["source"],
-                "Relationship": "produces clue",
-                "To": f"{clue['id']} / {clue['title']}",
-            }
-        )
-
-    for finding in case["findings"]:
-        graph_rows.append(
-            {
-                "From": "AI ENGINE",
-                "Relationship": "generates",
-                "To": f"{finding['id']} / {finding['title']}",
-            }
-        )
-
-    st.dataframe(
-        pd.DataFrame(graph_rows),
-        width="stretch",
-        hide_index=True,
-    )
-
-    st.markdown("### VISUAL CASE MAP")
-
-    center = st.columns([1, 2, 1])
-
-    with center[1]:
-        st.markdown(
-            f"""
-            <div class="panel" style="text-align:center;">
-                <div class="mono">ACTIVE CASE</div>
-                <div class="big-number">{case['case_id']}</div>
-                <div class="muted">{case['title']}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown(
-        """
-        <div style="
-            text-align:center;
-            font-family:'Space Mono',monospace;
-            color:#00e5ff;
-            font-size:24px;
-        ">
-            ↓
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-   evidence_cols = st.columns(min(4, max(1, len(case["evidence"]))))
-
-    if case["evidence"]:
-    evidence_cols = st.columns(
-        min(4, max(1, len(case["evidence"])))
-    )
-
-    for i, evidence in enumerate(case["evidence"]):
-        with evidence_cols[i % len(evidence_cols)]:
-            st.markdown(
-                f"""
-                <div class="metric">
-                    <div class="value">{evidence}</div>
-                    <div class="label">Evidence</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("### DETECTED ENTITIES")
-
-    if case["objects"]:
-        object_counts = Counter(
-            obj["name"] for obj in case["objects"]
-        )
-
-        cols = st.columns(
-            min(5, max(1, len(object_counts)))
-        )
-
-        for i, (name, quantity) in enumerate(object_counts.items()):
-            with cols[i % len(cols)]:
-                st.markdown(
-                    f"""
-                    <div class="metric">
-                        <div class="value">{quantity}</div>
-                        <div class="label">{name}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+    if not case:
+        st.warning("Create/select a case first.")
     else:
-        st.info("No detected objects yet.")
+        persons = [x for x in db["persons"] if x["case_id"] == case["id"]]
+
+        with st.expander("➕ Register Evidence", expanded=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                title = st.text_input("Evidence title")
+                kind = st.selectbox(
+                    "Type",
+                    ["Image", "Document", "Video", "Observation", "Statement", "Other"],
+                )
+                source = st.text_input("Source")
+            with c2:
+                description = st.text_area("Description")
+                person_labels = ["— None —"] + [f'{p["id"]} — {p["name"]}' for p in persons]
+                person_label = st.selectbox("Link to person", person_labels)
+
+            if st.button("REGISTER EVIDENCE", type="primary"):
+                if title.strip():
+                    linked_person = "" if person_label == "— None —" else person_label.split(" — ")[0]
+                    add_evidence(
+                        case["id"],
+                        title.strip(),
+                        kind,
+                        source.strip(),
+                        description.strip(),
+                        linked_person,
+                    )
+                    st.success("Evidence registered and linked to this case.")
+                    st.rerun()
+                else:
+                    st.error("Evidence title is required.")
+
+        evidence = [x for x in db["evidence"] if x["case_id"] == case["id"]]
+        if evidence:
+            rows = []
+            for x in evidence:
+                linked = get_person_name(x["linked_person"])
+                rows.append(
+                    {
+                        "ID": x["id"],
+                        "Title": x["title"],
+                        "Type": x["kind"],
+                        "Source": x["source"],
+                        "Linked Person": linked,
+                        "Created": x["created"],
+                    }
+                )
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        else:
+            st.info("No evidence registered yet.")
+
+
+# ============================================================
+# CLUES
+# ============================================================
+elif page == "Clues":
+    st.markdown("### CLUE TRACKER")
+
+    if not case:
+        st.warning("Create/select a case first.")
+    else:
+        with st.expander("➕ Add Clue", expanded=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                title = st.text_input("Clue title")
+                strength = st.selectbox("Strength", ["Weak", "Moderate", "Strong", "Critical"])
+            with c2:
+                status = st.selectbox("Status", ["Open", "Verified", "Disputed", "Closed"])
+                description = st.text_area("Why is this clue important?")
+
+            if st.button("ADD CLUE", type="primary"):
+                if title.strip():
+                    add_clue(
+                        case["id"], title.strip(), strength, status, description.strip()
+                    )
+                    st.success("Clue connected to the case.")
+                    st.rerun()
+                else:
+                    st.error("Clue title is required.")
+
+        clues = [x for x in db["clues"] if x["case_id"] == case["id"]]
+        if clues:
+            for x in clues:
+                with st.container(border=True):
+                    a, b, c = st.columns([2.5, 1, 1])
+                    with a:
+                        st.markdown(f"**{x['title']}**")
+                        st.caption(x["description"])
+                    with b:
+                        st.metric("Strength", x["strength"])
+                    with c:
+                        st.metric("Status", x["status"])
+        else:
+            st.info("No clues yet.")
+
+
+# ============================================================
+# INVESTIGATION BOARD
+# ============================================================
+elif page == "Investigation Board":
+    st.markdown("### 🧩 INVESTIGATION BOARD")
+    st.caption("This is the main connection layer. Add evidence/person/clue/event links to form an investigation graph.")
+
+    if not case:
+        st.warning("Create/select a case first.")
+    else:
+        all_items = []
+        for x in db["persons"]:
+            if x["case_id"] == case["id"]:
+                all_items.append((f"Person | {x['id']} | {x['name']}", "Person", x["id"]))
+        for x in db["evidence"]:
+            if x["case_id"] == case["id"]:
+                all_items.append((f"Evidence | {x['id']} | {x['title']}", "Evidence", x["id"]))
+        for x in db["clues"]:
+            if x["case_id"] == case["id"]:
+                all_items.append((f"Clue | {x['id']} | {x['title']}", "Clue", x["id"]))
+        for x in db["timeline"]:
+            if x["case_id"] == case["id"]:
+                all_items.append((f"Event | {x['id']} | {x['title']}", "Timeline", x["id"]))
+
+        if all_items:
+            with st.expander("➕ Create Connection", expanded=True):
+                labels = [x[0] for x in all_items]
+                label_to_item = {x[0]: x for x in all_items}
+                source_label = st.selectbox("Select item", labels, key="board_source")
+                note = st.text_input("Connection note", placeholder="e.g. same time window / same person / corroborates")
+                if st.button("ADD TO BOARD", type="primary"):
+                    _, item_type, item_id = label_to_item[source_label]
+                    add_board_item(case["id"], item_type, item_id, note.strip())
+                    st.success("Item added to investigation board.")
+                    st.rerun()
+
+        board = [x for x in db["board"] if x["case_id"] == case["id"]]
+        if board:
+            for x in board:
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{x['item_type']} · {x['item_id']}**  \n{x['note'] or 'No connection note.'}"
+                    )
+        else:
+            st.info("Board is empty. Add linked items above.")
+
+        st.markdown("#### Automatic Relationship View")
+        persons = [x for x in db["persons"] if x["case_id"] == case["id"]]
+        evidence = [x for x in db["evidence"] if x["case_id"] == case["id"]]
+        clues = [x for x in db["clues"] if x["case_id"] == case["id"]]
+
+        rel_rows = []
+        for e in evidence:
+            rel_rows.append(
+                {
+                    "Evidence": e["title"],
+                    "Linked Person": get_person_name(e["linked_person"]),
+                    "Case": case["id"],
+                }
+            )
+        for c in clues:
+            rel_rows.append(
+                {
+                    "Evidence": c["title"],
+                    "Linked Person": "—",
+                    "Case": case["id"],
+                }
+            )
+
+        if rel_rows:
+            st.dataframe(pd.DataFrame(rel_rows), width="stretch", hide_index=True)
+        else:
+            st.info("Add evidence and clues to populate relationships.")
 
 
 # ============================================================
 # TIMELINE
 # ============================================================
-
 elif page == "Timeline":
+    st.markdown("### 🕐 CASE TIMELINE")
 
-    ensure_case()
-
-    case = st.session_state.case
-
-    st.markdown(
-        """
-        <div class="panel">
-            <div class="panel-title">🕐 INVESTIGATION TIMELINE</div>
-            <div class="muted">
-                Events are automatically added when evidence is analyzed.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if not case["timeline"]:
-        st.info("No timeline events yet.")
+    if not case:
+        st.warning("Create/select a case first.")
     else:
-        for index, event in enumerate(case["timeline"], start=1):
+        with st.expander("➕ Add Timeline Event", expanded=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                title = st.text_input("Event title")
+                date_text = st.text_input(
+                    "Date/time",
+                    value=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                )
+            with c2:
+                location = st.text_input("Location")
+                description = st.text_area("Event description")
 
-            st.markdown(
-                f"""
-                <div class="finding">
-                    <div class="mono">{event['time']} · EVENT {index:02d}</div>
-                    <div class="finding-title">{event['event']}</div>
-                    <div class="finding-text">
-                        SOURCE: {event['source']}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            if st.button("ADD EVENT", type="primary"):
+                if title.strip():
+                    add_event(
+                        case["id"],
+                        title.strip(),
+                        date_text.strip(),
+                        location.strip(),
+                        description.strip(),
+                    )
+                    st.success("Timeline event linked to the case.")
+                    st.rerun()
+                else:
+                    st.error("Event title is required.")
+
+        events = [x for x in db["timeline"] if x["case_id"] == case["id"]]
+        if events:
+            events = sorted(events, key=lambda x: x["date"])
+            for x in events:
+                with st.container(border=True):
+                    st.markdown(f"**{x['date']} — {x['title']}**")
+                    st.caption(f"📍 {x['location']}  |  {x['description']}")
+        else:
+            st.info("No timeline events yet.")
 
 
 # ============================================================
-# CASE REPORT
+# LOCATIONS
 # ============================================================
+elif page == "Locations":
+    st.markdown("### 📍 LOCATIONS")
 
-elif page == "Case Report":
+    if not case:
+        st.warning("Create/select a case first.")
+    else:
+        with st.expander("➕ Add Location", expanded=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                name = st.text_input("Location name")
+                address = st.text_input("Address / area")
+            with c2:
+                category = st.selectbox(
+                    "Location type", ["Scene", "Residence", "Workplace", "Meeting", "Other"]
+                )
+                notes = st.text_area("Notes")
 
-    ensure_case()
+            if st.button("ADD LOCATION", type="primary"):
+                if name.strip():
+                    add_location(
+                        case["id"], name.strip(), address.strip(), category, notes.strip()
+                    )
+                    st.success("Location linked to the active case.")
+                    st.rerun()
+                else:
+                    st.error("Location name is required.")
 
-    case = st.session_state.case
-
-    st.markdown(
-        """
-        <div class="panel">
-            <div class="panel-title">📄 AI CASE REPORT</div>
-            <div class="muted">
-                Structured machine-readable investigation report.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("### CASE SUMMARY")
-
-    a, b, c, d = st.columns(4)
-
-    with a:
-        st.metric("Case ID", case["case_id"])
-
-    with b:
-        st.metric("Status", case["status"])
-
-    with c:
-        st.metric("Priority", case["priority"])
-
-    with d:
-        st.metric("Evidence", len(case["evidence"]))
-
-    st.write("")
-
-    st.markdown("### FINDINGS")
-
-    if case["findings"]:
-        for finding in case["findings"]:
-            st.markdown(
-                f"""
-                <div class="finding">
-                    <div class="finding-title">
-                        {finding['id']} · {finding['title']}
-                    </div>
-                    <div class="finding-text">
-                        {finding['text']}
-                    </div>
-                    <span class="tag">{finding['severity']}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
+        locations = [x for x in db["locations"] if x["case_id"] == case["id"]]
+        if locations:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "ID": x["id"],
+                            "Name": x["name"],
+                            "Address": x["address"],
+                            "Type": x["category"],
+                            "Notes": x["notes"],
+                        }
+                        for x in locations
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
             )
+        else:
+            st.info("No locations yet.")
+
+
+# ============================================================
+# IMAGE INTELLIGENCE / YOLO
+# ============================================================
+elif page == "Image Intelligence":
+    st.markdown("### 🖼️ IMAGE INTELLIGENCE")
+    st.caption("Optional YOLO object detection. This does NOT identify people by face or perform celebrity recognition.")
+
+    if YOLO is None:
+        st.error("Ultralytics could not be imported. Check requirements.txt.")
     else:
-        st.info("No findings available.")
+        confidence = st.slider(
+            "Detection confidence",
+            min_value=0.10,
+            max_value=0.95,
+            value=0.35,
+            step=0.05,
+        )
 
-    st.markdown("### EVIDENCE")
+        uploaded = st.file_uploader(
+            "Upload evidence image",
+            type=["jpg", "jpeg", "png"],
+        )
 
-    if case["evidence"]:
+        if uploaded:
+            image = Image.open(uploaded).convert("RGB")
+            st.image(image, caption="Original evidence", width="stretch")
+
+            if st.button("RUN YOLO ANALYSIS", type="primary"):
+                try:
+                    with st.spinner("Loading YOLO model and running inference..."):
+                        @st.cache_resource
+                        def load_yolo():
+                            return YOLO("yolov8n.pt")
+
+                        model = load_yolo()
+                        result = model(
+                            np.array(image),
+                            conf=confidence,
+                            verbose=False,
+                        )[0]
+
+                    plotted = result.plot()
+                    detected_image = Image.fromarray(plotted[..., ::-1])
+
+                    boxes = result.boxes
+                    detected_count = len(boxes)
+                    names = [
+                        model.names[int(box.cls[0])]
+                        for box in boxes
+                    ]
+                    confs = [
+                        float(box.conf[0])
+                        for box in boxes
+                    ]
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Objects detected", detected_count)
+                    c2.metric("Unique classes", len(set(names)))
+                    c3.metric(
+                        "Average confidence",
+                        f"{(sum(confs) / len(confs) * 100) if confs else 0:.1f}%",
+                    )
+
+                    st.image(
+                        detected_image,
+                        caption="YOLO detection result",
+                        width="stretch",
+                    )
+
+                    if detected_count:
+                        counts = Counter(names)
+                        rows = [
+                            {
+                                "Object": name,
+                                "Count": qty,
+                                "Max Confidence": f"{max(
+                                    [confs[i] for i, n in enumerate(names) if n == name]
+                                ) * 100:.1f}%",
+                            }
+                            for name, qty in counts.items()
+                        ]
+                        st.dataframe(
+                            pd.DataFrame(rows),
+                            width="stretch",
+                            hide_index=True,
+                        )
+
+                        if case:
+                            st.divider()
+                            st.markdown("#### Connect YOLO Result to Active Case")
+                            evidence_title = st.text_input(
+                                "Evidence record title",
+                                value=f"YOLO analysis — {uploaded.name}",
+                            )
+                            if st.button("SAVE YOLO RESULT AS EVIDENCE"):
+                                object_text = ", ".join(
+                                    f"{k} ({v})" for k, v in counts.items()
+                                )
+                                add_evidence(
+                                    case["id"],
+                                    evidence_title.strip() or f"YOLO analysis — {uploaded.name}",
+                                    "AI Image Analysis",
+                                    uploaded.name,
+                                    f"Detected objects: {object_text}. Average confidence: {(sum(confs) / len(confs) * 100):.1f}%.",
+                                )
+                                st.success(
+                                    "YOLO result saved as evidence and linked to the active case."
+                                )
+                                st.rerun()
+                    else:
+                        st.info("No objects detected at the selected confidence threshold.")
+
+                except Exception as exc:
+                    st.error(f"YOLO inference failed: {exc}")
+
+
+# ============================================================
+# ANALYTICS
+# ============================================================
+elif page == "Analytics":
+    st.markdown("### 📊 INVESTIGATION ANALYTICS")
+
+    if not db["cases"]:
+        st.info("Create cases to see analytics.")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Cases", len(db["cases"]))
+        c2.metric("Evidence", len(db["evidence"]))
+        c3.metric("Persons", len(db["persons"]))
+        c4.metric("Clues", len(db["clues"]))
+
+        st.write("")
+
+        case_stats = []
+        for c in db["cases"]:
+            counts = case_counts(c["id"])
+            case_stats.append(
+                {
+                    "Case": c["id"],
+                    "Title": c["title"],
+                    "Persons": counts["persons"],
+                    "Evidence": counts["evidence"],
+                    "Clues": counts["clues"],
+                    "Timeline": counts["timeline"],
+                    "Locations": counts["locations"],
+                }
+            )
+
         st.dataframe(
-            pd.DataFrame(case["evidence"]),
+            pd.DataFrame(case_stats),
             width="stretch",
             hide_index=True,
         )
+
+        st.markdown("#### Priority Distribution")
+        priority_counts = Counter(c["priority"] for c in db["cases"])
+        st.bar_chart(pd.DataFrame.from_dict(priority_counts, orient="index", columns=["Cases"]))
+
+
+# ============================================================
+# REPORT
+# ============================================================
+elif page == "Report":
+    st.markdown("### 📄 CASE REPORT")
+
+    if not case:
+        st.warning("Create/select a case first.")
     else:
-        st.info("No evidence.")
+        counts = case_counts(case["id"])
+        report = {
+            "generated_at": now_text(),
+            "case": case,
+            "persons": [x for x in db["persons"] if x["case_id"] == case["id"]],
+            "evidence": [x for x in db["evidence"] if x["case_id"] == case["id"]],
+            "clues": [x for x in db["clues"] if x["case_id"] == case["id"]],
+            "timeline": [x for x in db["timeline"] if x["case_id"] == case["id"]],
+            "locations": [x for x in db["locations"] if x["case_id"] == case["id"]],
+            "investigation_board": [x for x in db["board"] if x["case_id"] == case["id"]],
+        }
 
-    st.markdown("### CLUES")
-
-    if case["clues"]:
-        st.dataframe(
-            pd.DataFrame(case["clues"]),
-            width="stretch",
-            hide_index=True,
+        st.markdown(
+            f"""
+            <div class="panel">
+                <h2>{case["title"]}</h2>
+                <p>{case["summary"]}</p>
+                <div class="mono">CASE // {case["id"]}</div>
+                <div class="mono">STATUS // {case["status"]}</div>
+                <div class="mono">PRIORITY // {case["priority"]}</div>
+                <br>
+                <div class="mono">PERSONS {counts["persons"]} · EVIDENCE {counts["evidence"]} · CLUES {counts["clues"]} · EVENTS {counts["timeline"]}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-    else:
-        st.info("No clues.")
 
-    st.markdown("### RAW CASE JSON")
+        st.json(report)
 
-    st.code(
-        case_json(),
-        language="json",
-    )
-
-    st.download_button(
-        "⬇️ DOWNLOAD CASE REPORT",
-        data=case_json(),
-        file_name=f"{case['case_id']}_report.json",
-        mime="application/json",
-        width="stretch",
-    )
+        st.download_button(
+            "DOWNLOAD CASE REPORT (JSON)",
+            data=json.dumps(report, indent=2, ensure_ascii=False),
+            file_name=f"{case['id']}_report.json",
+            mime="application/json",
+            width="stretch",
+        )
 
 
 # ============================================================
 # FOOTER
 # ============================================================
-
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        margin-top:45px;
-        color:#526277;
-        font-family:'Space Mono',monospace;
-        font-size:10px;
-    ">
-        CID AI INVESTIGATION SYSTEM · COMPUTER VISION ASSISTANCE ·
-        YOLO OBJECT DETECTION · DEMONSTRATION PLATFORM
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.divider()
+st.caption(
+    "CID Intelligence Hub • Demo investigation management system • "
+    "YOLO is used only for closed-set object detection; it does not identify people."
 )
