@@ -118,6 +118,105 @@ def load_model(model_name: str):
 
 MAX_DIM = 1280  # longer side is capped to this before inference — big speed win on large photos
 
+# Rough COCO-class -> scene-category map, used only to generate the
+# natural-language "AI Scene Summary" below. Not exhaustive by design —
+# anything unmapped just gets skipped from the categorization (it still
+# shows up normally in the detected-objects list).
+CATEGORY_MAP = {
+    "person": "people",
+    "bicycle": "vehicles", "car": "vehicles", "motorcycle": "vehicles", "bus": "vehicles",
+    "train": "vehicles", "truck": "vehicles", "boat": "vehicles", "airplane": "vehicles",
+    "dog": "animals", "cat": "animals", "horse": "animals", "sheep": "animals", "cow": "animals",
+    "elephant": "animals", "bear": "animals", "zebra": "animals", "giraffe": "animals", "bird": "animals",
+    "chair": "furniture", "couch": "furniture", "bed": "furniture", "dining table": "furniture",
+    "tv": "electronics", "laptop": "electronics", "cell phone": "electronics", "keyboard": "electronics",
+    "mouse": "electronics", "remote": "electronics",
+    "sports ball": "sports", "frisbee": "sports", "skateboard": "sports", "surfboard": "sports",
+    "tennis racket": "sports", "baseball bat": "sports", "baseball glove": "sports", "skis": "sports",
+    "snowboard": "sports",
+    "banana": "food", "apple": "food", "sandwich": "food", "orange": "food", "pizza": "food",
+    "donut": "food", "cake": "food", "broccoli": "food", "carrot": "food", "hot dog": "food",
+}
+
+
+def _pluralize(name: str, n: int) -> str:
+    if n <= 1:
+        return name
+    irregular = {"person": "people"}
+    return irregular.get(name, f"{name}s")
+
+
+def _label_counts_phrase(counts: dict) -> str:
+    parts = [f"{n} {_pluralize(name, n)}" for name, n in sorted(counts.items(), key=lambda x: -x[1])]
+    if not parts:
+        return "nothing"
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+
+def generate_scene_summary(counts: dict, n_boxes: int) -> str:
+    """Produce a one-line natural-language description of the scene, based
+    on what was actually detected — a lightweight, rule-based stand-in for
+    a captioning model (swap this for a real vision-language model call
+    later if needed)."""
+    if n_boxes == 0:
+        return "AEGIS-Vision didn't find any recognizable objects in this image at the current confidence threshold."
+
+    cats = {}
+    for name, n in counts.items():
+        cat = CATEGORY_MAP.get(name)
+        if cat:
+            cats[cat] = cats.get(cat, 0) + n
+
+    if cats.get("vehicles", 0) and cats.get("people", 0):
+        scene_type = "a street or traffic scene"
+    elif cats.get("vehicles", 0):
+        scene_type = "a transport-related scene"
+    elif cats.get("animals", 0) and not cats.get("furniture") and not cats.get("electronics"):
+        scene_type = "an outdoor / wildlife scene"
+    elif cats.get("furniture", 0) or cats.get("electronics", 0):
+        scene_type = "an indoor scene"
+    elif cats.get("food", 0):
+        scene_type = "a food-related scene"
+    elif cats.get("people", 0) and len(counts) == 1:
+        scene_type = "a portrait / people-focused scene"
+    else:
+        scene_type = "a general scene"
+
+    phrase = _label_counts_phrase(counts)
+    return f"This looks like {scene_type}: {phrase} detected."
+
+
+def _class_color(name: str):
+    """Deterministic color per class name (purple/indigo/cyan-leaning palette)."""
+    palette = [(124, 58, 237), (79, 70, 229), (34, 211, 238), (167, 139, 250),
+               (52, 211, 153), (251, 191, 36), (244, 114, 182), (96, 165, 250)]
+    return palette[hash(name) % len(palette)]
+
+
+def draw_boxes(image: Image.Image, boxes: list) -> Image.Image:
+    """Draw a subset of boxes (list of dicts: xyxy, cls_name, conf) onto a
+    copy of `image`. Used to build the frame-by-frame reveal animation."""
+    from PIL import ImageDraw, ImageFont
+    img = image.copy()
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default(size=16)
+    except TypeError:
+        font = ImageFont.load_default()
+
+    for b in boxes:
+        x1, y1, x2, y2 = b["xyxy"]
+        color = _class_color(b["cls_name"])
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        label = f'{b["cls_name"]} {b["conf"]:.2f}'
+        tb = draw.textbbox((0, 0), label, font=font)
+        tw, th = tb[2] - tb[0], tb[3] - tb[1]
+        draw.rectangle([x1, max(0, y1 - th - 6), x1 + tw + 8, y1], fill=color)
+        draw.text((x1 + 4, max(0, y1 - th - 5)), label, fill="white", font=font)
+    return img
+
 
 def _resize_for_inference(image: Image.Image) -> Image.Image:
     """Downscale large images before running the model. Detection quality is
@@ -154,17 +253,28 @@ def run_detection(image_bytes: bytes, confidence: float, iou: float, model_name:
     names = result.names
     counts = {}
     n_boxes = 0
+    boxes_data = []
     if result.boxes is not None:
         n_boxes = len(result.boxes)
-        for cls_id in result.boxes.cls.tolist():
+        xyxy_list = result.boxes.xyxy.tolist()
+        cls_list = result.boxes.cls.tolist()
+        conf_list = result.boxes.conf.tolist()
+        for xyxy, cls_id, conf in zip(xyxy_list, cls_list, conf_list):
             cls_name = names[int(cls_id)]
             counts[cls_name] = counts.get(cls_name, 0) + 1
+            boxes_data.append({"xyxy": xyxy, "cls_name": cls_name, "conf": conf})
+        boxes_data.sort(key=lambda b: -b["conf"])  # reveal most-confident detections first
 
     buf = io.BytesIO()
     annotated_img.save(buf, format="PNG")
 
+    base_buf = io.BytesIO()
+    inference_image.save(base_buf, format="PNG")
+
     return {
         "annotated_png": buf.getvalue(),
+        "base_png": base_buf.getvalue(),   # clean (unboxed) image used as the animation canvas
+        "boxes_data": boxes_data,
         "counts": counts,
         "n_boxes": n_boxes,
         "elapsed": elapsed,
@@ -236,13 +346,39 @@ if uploaded is not None:
     n_boxes = detection["n_boxes"]
     elapsed = detection["elapsed"]
 
+    # Only replay the box-reveal animation when this is a genuinely new
+    # detection (image/settings changed) — not on every unrelated rerun.
+    sig = hashlib.md5(image_bytes).hexdigest() + f"-{confidence}-{iou}-{model_name}"
+    is_new = st.session_state.get("last_sig") != sig
+    st.session_state["last_sig"] = sig
+
     with col2:
         st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown("##### 🎯 Detected Objects")
-        st.image(annotated_img, use_container_width=True)
+        img_slot = st.empty()
+
+        if is_new and detection["boxes_data"]:
+            base_image = Image.open(io.BytesIO(detection["base_png"]))
+            boxes_data = detection["boxes_data"]
+            # cap total animation time regardless of how many boxes there are
+            step = max(1, len(boxes_data) // 12)
+            per_frame_delay = min(0.18, 1.8 / max(1, len(boxes_data) // step))
+            for i in range(step, len(boxes_data) + step, step):
+                frame = draw_boxes(base_image, boxes_data[:i])
+                img_slot.image(frame, use_container_width=True)
+                time.sleep(per_frame_delay)
+
+        img_slot.image(annotated_img, use_container_width=True)
         if detection["was_resized"]:
             st.caption(f"Resized to max {MAX_DIM}px for faster inference — detection quality unaffected.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # ---------------- AI Scene Summary ----------------
+    st.markdown('<div class="glass">', unsafe_allow_html=True)
+    st.markdown("##### 🧭 AI Scene Summary")
+    st.markdown(f'<p style="font-size:1.02rem; color:#ece9ff;">{generate_scene_summary(counts, n_boxes)}</p>',
+                unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ---------------- Stats ----------------
     st.markdown('<div class="glass">', unsafe_allow_html=True)
