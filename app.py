@@ -14,6 +14,7 @@ Model: Ultralytics YOLOv8n (nano) — small, fast, downloads automatically
 on first run (requires internet, available on Streamlit Cloud).
 """
 
+import hashlib
 import io
 import time
 
@@ -110,9 +111,65 @@ st.markdown(CSS, unsafe_allow_html=True)
 # ----------------------------------------------------------------------------
 
 @st.cache_resource(show_spinner=False)
-def load_model():
+def load_model(model_name: str):
     from ultralytics import YOLO
-    return YOLO("yolov8n.pt")  # small pretrained model, auto-downloads on first run
+    return YOLO(model_name)  # auto-downloads on first run
+
+
+MAX_DIM = 1280  # longer side is capped to this before inference — big speed win on large photos
+
+
+def _resize_for_inference(image: Image.Image) -> Image.Image:
+    """Downscale large images before running the model. Detection quality is
+    essentially unchanged (YOLO already resizes internally to its input size),
+    but a smaller array means faster preprocessing and less memory."""
+    w, h = image.size
+    longest = max(w, h)
+    if longest <= MAX_DIM:
+        return image
+    scale = MAX_DIM / longest
+    return image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def run_detection(image_bytes: bytes, confidence: float, iou: float, model_name: str):
+    """
+    Runs YOLO once for a given (image, confidence, iou, model) combination
+    and caches the result. Re-running the app (e.g. moving an unrelated
+    widget) or re-picking the same settings reuses the cached result
+    instead of paying for inference again.
+    """
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    inference_image = _resize_for_inference(image)
+
+    model = load_model(model_name)
+    t0 = time.time()
+    results = model.predict(np.array(inference_image), conf=confidence, iou=iou, verbose=False)
+    elapsed = time.time() - t0
+
+    result = results[0]
+    annotated = result.plot()  # numpy array (BGR)
+    annotated_img = Image.fromarray(annotated[..., ::-1])  # BGR -> RGB
+
+    names = result.names
+    counts = {}
+    n_boxes = 0
+    if result.boxes is not None:
+        n_boxes = len(result.boxes)
+        for cls_id in result.boxes.cls.tolist():
+            cls_name = names[int(cls_id)]
+            counts[cls_name] = counts.get(cls_name, 0) + 1
+
+    buf = io.BytesIO()
+    annotated_img.save(buf, format="PNG")
+
+    return {
+        "annotated_png": buf.getvalue(),
+        "counts": counts,
+        "n_boxes": n_boxes,
+        "elapsed": elapsed,
+        "was_resized": inference_image.size != image.size,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -126,17 +183,32 @@ st.markdown('<p class="yolo-subtitle" style="text-align:center;">AI-powered obje
 # ----------------------------------------------------------------------------
 # SIDEBAR — CONTROLS
 # ----------------------------------------------------------------------------
+MODEL_OPTIONS = {
+    "YOLOv8s — Accurate (recommended)": "yolov8s.pt",
+    "YOLOv8n — Fastest": "yolov8n.pt",
+    "YOLOv8m — Most Accurate (slower)": "yolov8m.pt",
+}
+
 with st.sidebar:
     st.markdown("### ⚙️ Detection Settings")
-    confidence = st.slider("Confidence threshold", 0.10, 0.95, 0.35, 0.05)
+    model_label = st.selectbox("Model", list(MODEL_OPTIONS.keys()), index=0,
+                                help="Larger models are more accurate but slower. "
+                                     "'s' is a good balance for demos/presentations.")
+    model_name = MODEL_OPTIONS[model_label]
+    confidence = st.slider("Confidence threshold", 0.10, 0.95, 0.55, 0.05,
+                            help="Higher = fewer but more confident detections. "
+                                 "Raise this if you're seeing wrong/false labels.")
     iou = st.slider("IoU threshold (NMS)", 0.10, 0.95, 0.45, 0.05)
     st.markdown("---")
     st.markdown("### ℹ️ About")
     st.caption(
-        "Model: **YOLOv8n** (Ultralytics), trained on the COCO dataset "
+        f"Model: **{model_label.split(' — ')[0]}** (Ultralytics), trained on the COCO dataset "
         "(80 everyday object classes: people, vehicles, animals, furniture, etc.)."
     )
     st.caption("Runs fully in this app — no external API key needed.")
+    st.caption("⚠️ Pretrained models occasionally misclassify visually similar objects "
+               "(e.g. bus ↔ truck). Raising the confidence threshold or using a larger "
+               "model reduces this.")
 
 # ----------------------------------------------------------------------------
 # MAIN — UPLOAD + DETECTION
@@ -146,7 +218,8 @@ uploaded = st.file_uploader("📤 Upload an image", type=["jpg", "jpeg", "png", 
 st.markdown('</div>', unsafe_allow_html=True)
 
 if uploaded is not None:
-    image = Image.open(uploaded).convert("RGB")
+    image_bytes = uploaded.getvalue()
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -155,34 +228,27 @@ if uploaded is not None:
         st.image(image, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.spinner("🧠 Running YOLOv8 detection..."):
-        t0 = time.time()
-        model = load_model()
-        results = model.predict(np.array(image), conf=confidence, iou=iou, verbose=False)
-        elapsed = time.time() - t0
+    with st.spinner(f"🧠 Running {model_label.split(' — ')[0]} detection..."):
+        detection = run_detection(image_bytes, confidence, iou, model_name)
 
-    result = results[0]
-    annotated = result.plot()  # numpy array (BGR), already RGB-converted by ultralytics plot for display
-    annotated_img = Image.fromarray(annotated[..., ::-1])  # BGR -> RGB
+    annotated_img = Image.open(io.BytesIO(detection["annotated_png"]))
+    counts = detection["counts"]
+    n_boxes = detection["n_boxes"]
+    elapsed = detection["elapsed"]
 
     with col2:
         st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown("##### 🎯 Detected Objects")
         st.image(annotated_img, use_container_width=True)
+        if detection["was_resized"]:
+            st.caption(f"Resized to max {MAX_DIM}px for faster inference — detection quality unaffected.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ---------------- Stats ----------------
-    boxes = result.boxes
-    names = result.names
-    counts = {}
-    for cls_id in (boxes.cls.tolist() if boxes is not None else []):
-        cls_name = names[int(cls_id)]
-        counts[cls_name] = counts.get(cls_name, 0) + 1
-
     st.markdown('<div class="glass">', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown(f'<div class="kpi"><div class="kpi-value">{len(boxes) if boxes is not None else 0}</div>'
+        st.markdown(f'<div class="kpi"><div class="kpi-value">{n_boxes}</div>'
                      f'<div class="kpi-label">Objects Found</div></div>', unsafe_allow_html=True)
     with c2:
         st.markdown(f'<div class="kpi"><div class="kpi-value">{len(counts)}</div>'
